@@ -45,6 +45,45 @@ func (d *DB) UpsertDailySummary(ctx context.Context, s *models.DailySummary) err
 	})
 }
 
+// RollupDailySummariesForDate re-aggregates sessions into daily_summaries for a specific date (YYYY-MM-DD).
+func (d *DB) RollupDailySummariesForDate(ctx context.Context, date string) error {
+	query := `
+	INSERT INTO daily_summaries (
+		date, agent_name, project_name, model_name,
+		total_sessions, total_input_tokens, total_output_tokens,
+		total_cache_read_tokens, total_cache_creation_tokens,
+		total_cost_usd, total_duration_seconds
+	)
+	SELECT
+		strftime('%Y-%m-%d', start_time) AS date,
+		agent_name,
+		project_name,
+		model_resolved AS model_name,
+		COUNT(*) AS total_sessions,
+		COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+		COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+		COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+		COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation_tokens,
+		COALESCE(SUM(net_cost_usd), 0) AS total_cost_usd,
+		COALESCE(SUM(duration_seconds), 0) AS total_duration_seconds
+	FROM sessions
+	WHERE strftime('%Y-%m-%d', start_time) = ?
+	GROUP BY strftime('%Y-%m-%d', start_time), agent_name, project_name, model_resolved
+	ON CONFLICT(date, agent_name, project_name, model_name) DO UPDATE SET
+		total_sessions = excluded.total_sessions,
+		total_input_tokens = excluded.total_input_tokens,
+		total_output_tokens = excluded.total_output_tokens,
+		total_cache_read_tokens = excluded.total_cache_read_tokens,
+		total_cache_creation_tokens = excluded.total_cache_creation_tokens,
+		total_cost_usd = excluded.total_cost_usd,
+		total_duration_seconds = excluded.total_duration_seconds;
+	`
+	return d.WithTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, query, date)
+		return err
+	})
+}
+
 // QueryDailySummaries retrieves time-series summaries filtered by date range and dimensions.
 func (d *DB) QueryDailySummaries(ctx context.Context, from, to, agent, project, model string) ([]models.DailySummary, error) {
 	var whereClauses []string
