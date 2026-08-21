@@ -174,3 +174,19 @@ func convertRawEntry(pattern string, e rawJSONEntry, source string) models.Model
 	}
 	return rate
 }
+
+// GetAllRates returns a copy of all known model rates combining bundled JSON and curated overrides.
+func (ds *PricingDataset) GetAllRates() map[string]models.ModelRate {
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+
+	all := make(map[string]models.ModelRate, len(ds.bundled)+len(ds.curated))
+	for k, v := range ds.bundled {
+		all[k] = v
+	}
+	for k, v := range ds.curated {
+		all[k] = v
+	}
+	return all
+}
+
