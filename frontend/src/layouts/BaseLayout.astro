@@ -1,0 +1,33 @@
+---
+import { Navigation } from '../components/Navigation';
+import '../styles/globals.css';
+
+interface Props {
+  title?: string;
+  currentPath?: string;
+}
+
+const { title = 'TokenTelemetry', currentPath = '/' } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} - TokenTelemetry</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script is:inline>
+      const theme = localStorage.getItem('tt_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    </script>
+  </head>
+  <body className="bg-[#0a0c10] text-[#e8eaf0] antialiased">
+    <div className="flex min-h-screen bg-[#0a0c10] tt-canvas-glow tt-grid">
+      <Navigation client:load currentPath={currentPath} />
+      <main className="flex-1 min-w-0 p-8 overflow-y-auto max-h-screen">
+        <slot />
+      </main>
+    </div>
+  </body>
+</html>

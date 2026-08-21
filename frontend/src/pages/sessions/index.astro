@@ -1,0 +1,8 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { SessionList } from '../../components/SessionList';
+---
+
+<BaseLayout title="Sessions" currentPath="/sessions">
+  <SessionList client:load />
+</BaseLayout>

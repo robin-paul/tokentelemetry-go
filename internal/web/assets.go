@@ -2,6 +2,7 @@ package web
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -30,26 +31,54 @@ func Handler() http.Handler {
 			return
 		}
 
-		// 2. Check if file exists directly in embed.FS
-		f, err := subFS.Open(strings.TrimPrefix(reqPath, "/"))
+		// 2. Check if file or directory exists directly in embed.FS
+		cleanPath := strings.TrimPrefix(reqPath, "/")
+		if cleanPath == "" {
+			cleanPath = "."
+		}
+
+		f, err := subFS.Open(cleanPath)
 		if err == nil {
+			stat, statErr := f.Stat()
 			_ = f.Close()
-			w.Header().Set("Cache-Control", "no-cache")
-			fileServer.ServeHTTP(w, r)
-			return
+			if statErr == nil {
+				if stat.IsDir() {
+					indexPath := path.Join(cleanPath, "index.html")
+					if idxF, idxErr := subFS.Open(indexPath); idxErr == nil {
+						_ = idxF.Close()
+						w.Header().Set("Cache-Control", "no-cache")
+						fileServer.ServeHTTP(w, r)
+						return
+					}
+				} else {
+					w.Header().Set("Cache-Control", "no-cache")
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+			}
 		}
 
 		// 3. Dynamic route fallbacks for React client islands
+		fallbackFile := "index.html"
 		if strings.HasPrefix(reqPath, "/sessions/") {
-			r.URL.Path = "/sessions/[id]/index.html"
+			fallbackFile = "sessions/[id]/index.html"
 		} else if strings.HasPrefix(reqPath, "/projects/") {
-			r.URL.Path = "/projects/[...path]/index.html"
-		} else {
-			// Default 404 / root fallback
-			r.URL.Path = "/index.html"
+			fallbackFile = "projects/[...path]/index.html"
 		}
 
+		fb, err := subFS.Open(fallbackFile)
+		if err != nil {
+			fb, err = subFS.Open("index.html")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		defer fb.Close()
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		fileServer.ServeHTTP(w, r)
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, fb)
 	})
 }

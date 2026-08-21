@@ -1,0 +1,17 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { ProjectDetail } from '../../components/ProjectDetail';
+
+export function getStaticPaths() {
+  return [
+    { params: { path: '[...path]' } },
+    { params: { path: 'root' } },
+  ];
+}
+
+const { path } = Astro.params;
+---
+
+<BaseLayout title="Project Workspace" currentPath="/projects">
+  <ProjectDetail client:load projectPath={path} />
+</BaseLayout>

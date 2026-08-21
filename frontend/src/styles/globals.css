@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================================
+   TokenTelemetry design tokens
+   ========================================================================= */
+:root {
+  /* Surface elevation system: sunken < canvas < panel < raised < overlay */
+  --tt-canvas:    #0a0c10;   /* app background */
+  --tt-sunken:    #07090d;   /* inset surfaces (track, code blocks) */
+  --tt-panel:     #11141a;   /* primary card surface */
+  --tt-raised:    #181c25;   /* hover / popovers / nested cards */
+  --tt-overlay:   #1d2230;   /* modals, menus */
+
+  /* Hairline borders */
+  --tt-border:        rgba(255, 255, 255, 0.06);
+  --tt-border-strong: rgba(255, 255, 255, 0.10);
+  --tt-border-focus:  rgba(96, 165, 250, 0.45);
+
+  /* Text */
+  --tt-fg:        #e8eaf0;
+  --tt-fg-muted:  #9aa1ad;
+  --tt-fg-dim:    #5f6675;
+  --tt-fg-faint:  #3d434f;
+
+  /* Brand + signal */
+  --tt-brand:        #60a5fa;
+  --tt-brand-strong: #3b82f6;
+  --tt-brand-deep:   #1d4ed8;
+  --tt-brand-glow:   rgba(96, 165, 250, 0.18);
+
+  /* Status */
+  --tt-success: #10b981;
+  --tt-warn:    #f59e0b;
+  --tt-danger:  #f43f5e;
+  --tt-info:    #38bdf8;
+
+  /* Agent identity */
+  --agent-claude:      #f97316;
+  --agent-codex:       #a855f7;
+  --agent-gemini:      #06b6d4;
+  --agent-antigravity: #10b981;
+  --agent-qwen:        #3b82f6;
+  --agent-vibe:        #f472b6;
+  --agent-cursor:      #60a5fa;
+  --agent-copilot:     #6366f1;
+  --agent-opencode:    #f59e0b;
+  --agent-hermes:      #eab308;
+  --agent-grok:        #d4d4d8;
+  --agent-muse:        #2563eb;
+  --agent-prime:       #D4FF47;
+  --agent-dsh:         #4D6BFE;
+  --agent-cline:       #14b8a6;
+  --agent-smallcode:   #8b5cf6;
+  --agent-windsurf:    #0ea5e9;
+  --agent-pi:          #ec4899;
+  --agent-ollama:      #ffffff;
+
+  /* Radii + shadow */
+  --tt-radius-sm: 6px;
+  --tt-radius:    10px;
+  --tt-radius-lg: 14px;
+  --tt-radius-xl: 18px;
+  --tt-shadow-soft:  0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px -16px rgba(0,0,0,0.6);
+  --tt-shadow-pop:   0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 60px -24px rgba(0,0,0,0.7);
+
+  --tt-empty-cell: rgba(255,255,255,0.03);
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --tt-canvas:    #f4f5f8;
+  --tt-sunken:    #e8eaf0;
+  --tt-panel:     #fbfbfd;
+  --tt-raised:    #f0f2f6;
+  --tt-overlay:   #fdfdfe;
+
+  --tt-border:        rgba(15, 23, 42, 0.10);
+  --tt-border-strong: rgba(15, 23, 42, 0.16);
+  --tt-border-focus:  rgba(37, 99, 235, 0.45);
+
+  --tt-fg:        #1a1f2b;
+  --tt-fg-muted:  #4b5566;
+  --tt-fg-dim:    #6b7488;
+  --tt-fg-faint:  #9aa3b5;
+
+  --tt-brand:        #2563eb;
+  --tt-brand-strong: #1d4ed8;
+  --tt-brand-deep:   #1e40af;
+  --tt-brand-glow:   rgba(37, 99, 235, 0.10);
+
+  color-scheme: light;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--tt-canvas);
+  color: var(--tt-fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+.tt-canvas-glow {
+  background:
+    radial-gradient(1100px 600px at 85% -10%, rgba(96,165,250,0.07), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(168,85,247,0.05), transparent 60%);
+}
+
+.tt-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }

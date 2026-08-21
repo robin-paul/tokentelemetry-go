@@ -1,0 +1,17 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { SessionDetail } from '../../components/SessionDetail';
+
+export function getStaticPaths() {
+  return [
+    { params: { id: '[id]' } },
+    { params: { id: 'latest' } },
+  ];
+}
+
+const { id } = Astro.params;
+---
+
+<BaseLayout title="Session Trace" currentPath="/sessions">
+  <SessionDetail client:load sessionId={id} />
+</BaseLayout>
