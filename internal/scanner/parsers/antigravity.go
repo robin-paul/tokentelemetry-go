@@ -26,23 +26,30 @@ func (p *AntigravityParser) Detect(filePath string) bool {
 		(strings.HasSuffix(lower, ".jsonl") || strings.HasSuffix(lower, ".json"))
 }
 
+type antigravityUsage struct {
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	PromptTokens        int64 `json:"prompt_tokens"`
+	CompletionTokens    int64 `json:"completion_tokens"`
+	CachedTokens        int64 `json:"cached_tokens"`
+}
+
 type antigravityStep struct {
-	StepIndex int    `json:"step_index"`
-	Source    string `json:"source"`
-	Type      string `json:"type"`
-	CreatedAt string `json:"created_at"`
-	Content   string `json:"content"`
-	Thinking  string `json:"thinking"`
-	ToolCalls []struct {
+	StepIndex  int               `json:"step_index"`
+	Source     string            `json:"source"`
+	Type       string            `json:"type"`
+	CreatedAt  string            `json:"created_at"`
+	Content    string            `json:"content"`
+	Thinking   string            `json:"thinking"`
+	ToolCalls  []struct {
 		Name string          `json:"name"`
 		Args json.RawMessage `json:"args"`
 	} `json:"tool_calls"`
-	Metrics *struct {
-		InputTokens         int64 `json:"input_tokens"`
-		OutputTokens        int64 `json:"output_tokens"`
-		CacheReadTokens     int64 `json:"cache_read_tokens"`
-		CacheCreationTokens int64 `json:"cache_creation_tokens"`
-	} `json:"metrics"`
+	Metrics    *antigravityUsage `json:"metrics"`
+	TokenUsage *antigravityUsage `json:"token_usage"`
+	Usage      *antigravityUsage `json:"usage"`
 }
 
 func (p *AntigravityParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64, error) {
@@ -103,11 +110,31 @@ func (p *AntigravityParser) Parse(r io.Reader, startOffset int64) (*ParsedSessio
 		}
 
 		// Token estimation or explicit metrics
-		if step.Metrics != nil {
-			turn.Usage.InputTokens = step.Metrics.InputTokens
-			turn.Usage.OutputTokens = step.Metrics.OutputTokens
-			turn.Usage.CacheReadTokens = step.Metrics.CacheReadTokens
-			turn.Usage.CacheCreationTokens = step.Metrics.CacheCreationTokens
+		u := step.Metrics
+		if u == nil {
+			u = step.TokenUsage
+		}
+		if u == nil {
+			u = step.Usage
+		}
+
+		if u != nil {
+			in := u.InputTokens
+			if in == 0 {
+				in = u.PromptTokens
+			}
+			out := u.OutputTokens
+			if out == 0 {
+				out = u.CompletionTokens
+			}
+			cached := u.CacheReadTokens
+			if cached == 0 {
+				cached = u.CachedTokens
+			}
+			turn.Usage.InputTokens = in
+			turn.Usage.OutputTokens = out
+			turn.Usage.CacheReadTokens = cached
+			turn.Usage.CacheCreationTokens = u.CacheCreationTokens
 		} else {
 			// Character-based token heuristics (len / 4)
 			charCount := int64(len(step.Content) + len(step.Thinking))

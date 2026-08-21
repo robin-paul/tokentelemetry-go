@@ -32,6 +32,7 @@ func main() {
 	authToken := flag.String("auth-token", os.Getenv("TT_AUTH_TOKEN"), "Bearer token for non-loopback clients")
 	versionFlag := flag.Bool("version", false, "Print version information and exit")
 	noWatch := flag.Bool("no-watch", false, "Disable live filesystem watcher and background scanner")
+	scanDir := flag.String("scan-dir", "", "Optional custom directory to monitor and scan")
 	flag.Parse()
 
 	if *versionFlag {
@@ -92,7 +93,12 @@ func main() {
 
 	// 5. Initialize Watcher & Reconciler if enabled
 	if !*noWatch {
-		roots := scanner.DiscoverDefaultRoots()
+		var roots []string
+		if *scanDir != "" {
+			roots = []string{*scanDir}
+		} else {
+			roots = scanner.DiscoverDefaultRoots()
+		}
 		log.Printf("Discovered %d agent transcript roots to monitor", len(roots))
 
 		w, err := watcher.NewWatcher(scannerEngine, watcher.Config{
@@ -145,6 +151,7 @@ func main() {
 
 	<-sigChan
 	log.Println("Shutting down gracefully...")
+	cancel()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()

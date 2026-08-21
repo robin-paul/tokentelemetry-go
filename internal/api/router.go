@@ -21,14 +21,21 @@ func (s *Server) Router() http.Handler {
 
 	// 2. Health & System
 	r.Get("/healthz", s.Healthz)
-	r.Get("/", s.Root)
 	r.Get("/version", s.Version)
 	r.Get("/agents", s.Agents)
 	r.Get("/remote-access", s.RemoteAccess)
 
+	if s.cfg.WebHandler != nil {
+		r.Get("/", s.cfg.WebHandler.ServeHTTP)
+		r.Get("/api", s.Root)
+	} else {
+		r.Get("/", s.Root)
+	}
+
 	// 3. Real-Time SSE Stream
 	if s.broker != nil {
 		r.Get("/events", s.broker.ServeHTTP)
+		r.Get("/api/events", s.broker.ServeHTTP)
 	}
 
 	// 4. REST API routes (mounted under /api and root aliases)
@@ -66,8 +73,15 @@ func (s *Server) Router() http.Handler {
 	// Mount /api subtree
 	r.Route("/api", registerAPIRoutes)
 
-	// Root-level aliases for compatibility with legacy endpoints & research contracts
-	registerAPIRoutes(r)
+	// Root-level aliases for headless API testing or specific sub-resources
+	if s.cfg.WebHandler == nil {
+		registerAPIRoutes(r)
+	} else {
+		r.Get("/sessions/{id}/subagents/{subagent_id}/trace", s.GetSubagentTrace)
+		r.Get("/sessions/{id}/delegation", s.GetDelegation)
+		r.Get("/sessions/{id}/grok-forensics", s.GetGrokForensics)
+		r.Get("/sessions/{id}/hermes-overlay", s.GetHermesOverlay)
+	}
 
 	// Additional Root Endpoints
 	r.Get("/artifacts", s.GetArtifact)

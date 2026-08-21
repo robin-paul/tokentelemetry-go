@@ -8,17 +8,17 @@ all: build
 
 build-frontend:
 	@echo "==> Building Astro Static Frontend..."
-	cd frontend && npm ci && npm run build
+	cd frontend && ( [ -d node_modules ] || npm ci ) && npm run build
 
 build-backend:
 	@echo "==> Compiling Static Go Binary..."
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o bin/tokentelemetry ./cmd/tokentelemetry
 
-build: build-backend
+build: build-frontend build-backend
 	@echo "==> Build complete: bin/tokentelemetry"
 
 test:
-	go test -v -race ./internal/...
+	go test -v -race ./...
 
 clean:
 	rm -rf bin/ internal/web/dist frontend/dist
