@@ -1,0 +1,35 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.html
+
+# Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+tokentelemetry.db*
+
+# Node / Frontend
+node_modules/
+.astro/
+frontend/dist/
+frontend/node_modules/
+frontend/.astro/
+
+# IDE and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.tmp/
