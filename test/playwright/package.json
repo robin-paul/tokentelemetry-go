@@ -1,0 +1,71 @@
+{
+    "name": "playwright",
+    "version": "0.1.0",
+    "private": true,
+    "description": "playwright — Playwright test automation, scaffolded by create-agentic-playwright.",
+    "scripts": {
+        "test": "npx playwright test --grep-invert @destructive",
+        "test:chromium": "npx playwright test --project=chromium --grep-invert @destructive",
+        "test:firefox": "npx playwright test --project=firefox --grep-invert @destructive",
+        "test:webkit": "npx playwright test --project=webkit --grep-invert @destructive",
+        "test:ci": "npx playwright test --project=chromium --workers=1",
+        "test:debug": "npx playwright test --project=chromium --debug",
+        "test:ui": "npx playwright test --project=chromium --ui",
+        "test:headed": "npx playwright test --project=chromium --headed --grep-invert @destructive",
+        "test:smoke": "npx playwright test --grep @smoke --project=chromium",
+        "test:sanity": "npx playwright test --grep @sanity --project=chromium",
+        "test:regression": "npx playwright test --grep @regression --project=chromium",
+        "test:api": "npx playwright test --project=api",
+        "test:e2e": "npx playwright test --grep @e2e --project=chromium",
+        "test:destructive": "npx playwright test --grep @destructive --project=chromium --workers=1",
+        "report": "npx playwright show-report",
+        "lint": "npx eslint .",
+        "lint:fix": "npx eslint . --fix",
+        "format": "npx prettier --write .",
+        "setup": "bash scripts/setup.sh",
+        "playwright-cli:install-browsers": "node scripts/install-playwright-cli-browsers.js",
+        "setup:check": "node -e \"const v = +process.versions.node.split('.')[0]; if(v < 20) { console.error('Node >= 20 required, found ' + process.version); process.exit(1); }\" && bash scripts/link-cli.sh \"$PWD\" >/dev/null && playwright-cli --version && echo 'All checks passed'",
+        "check:skills-drift": "bash scripts/check-rules-drift.sh",
+        "check:skills-references": "bash scripts/check-skill-references-drift.sh",
+        "check:skills-crossrefs": "bash scripts/check-skill-crossrefs.sh",
+        "check:skills": "npm run check:skills-drift && npm run check:skills-references && npm run check:skills-crossrefs",
+        "version:stamp": "bash scripts/stamp-version.sh",
+        "check:version": "bash scripts/check-version-drift.sh",
+        "skills:verify": "bash scripts/sync-upstream-skills.sh verify",
+        "skills:reinstall": "bash scripts/sync-upstream-skills.sh reinstall",
+        "skills:update": "bash scripts/sync-upstream-skills.sh update",
+        "postinstall": "is-ci || husky"
+    },
+    "author": "Ivan Davidov",
+    "license": "MIT",
+    "devDependencies": {
+        "@faker-js/faker": "^10.5.0",
+        "@playwright/cli": "^0.1.18",
+        "@playwright/test": "^1.62.1",
+        "@types/node": "^26.2.0",
+        "@typescript-eslint/eslint-plugin": "^8.66.0",
+        "@typescript-eslint/parser": "^8.34.1",
+        "eslint": "^10.8.1",
+        "eslint-config-prettier": "^10.1.5",
+        "eslint-define-config": "^2.1.0",
+        "eslint-plugin-playwright": "^2.11.0",
+        "eslint-plugin-prettier": "^5.5.6",
+        "husky": "^9.1.7",
+        "is-ci": "^4.1.0",
+        "jiti": "^2.7.0",
+        "lint-staged": "^17.3.0"
+    },
+    "dependencies": {
+        "dotenv": "^17.4.2",
+        "zod": "^4.4.3"
+    },
+    "lint-staged": {
+        "*.{ts,tsx,js,jsx}": [
+            "npx eslint --fix",
+            "npx prettier --write"
+        ]
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}

@@ -26,7 +26,7 @@ export const Analytics: React.FC = () => {
 
   useEffect(() => {
     Promise.all([
-      apiFetch<any>('/analytics'),
+      apiFetch<any>('/api/analytics'),
       apiFetch<{ models: LeaderboardEntry[]; agents: LeaderboardEntry[] }>('/api/leaderboard?limit=10'),
     ])
       .then(([analytics, leaderboards]) => {
