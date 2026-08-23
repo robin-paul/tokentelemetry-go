@@ -31,17 +31,11 @@ export class SessionDetailPage {
     }
 
     get netCostValue(): Locator {
-        return this.page
-            .locator('div')
-            .filter({ has: this.page.getByText('Net Cost', { exact: true }) })
-            .locator('.text-emerald-400');
+        return this.page.locator('div.text-emerald-400.tabular').first();
     }
 
     get tokensValue(): Locator {
-        return this.page
-            .locator('div')
-            .filter({ has: this.page.getByText('Tokens', { exact: true }) })
-            .locator('.text-blue-400');
+        return this.page.locator('div.text-blue-400.tabular').first();
     }
 
     get modelValue(): Locator {

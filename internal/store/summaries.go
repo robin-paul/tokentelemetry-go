@@ -199,20 +199,23 @@ func (d *DB) QueryDailySummaries(ctx context.Context, from, to, agent, project, 
 		`, sWhereSQL)
 
 		liveRows, err := d.readerDB.QueryContext(ctx, liveQuery, sessionArgs...)
-		if err == nil {
-			defer liveRows.Close()
-			for liveRows.Next() {
-				var s models.DailySummary
-				if err := liveRows.Scan(
-					&s.Date, &s.AgentName, &s.ProjectName, &s.ModelName,
-					&s.TotalSessions, &s.TotalInputTokens, &s.TotalOutputTokens,
-					&s.TotalCacheReadTokens, &s.TotalCacheCreationTokens,
-					&s.TotalCostUSD, &s.TotalDurationSeconds,
-				); err == nil {
-					results = append(results, s)
-				}
-			}
+		if err != nil {
+			return nil, fmt.Errorf("failed to query live daily summaries: %w", err)
 		}
+		defer liveRows.Close()
+		for liveRows.Next() {
+			var s models.DailySummary
+			if err := liveRows.Scan(
+				&s.Date, &s.AgentName, &s.ProjectName, &s.ModelName,
+				&s.TotalSessions, &s.TotalInputTokens, &s.TotalOutputTokens,
+				&s.TotalCacheReadTokens, &s.TotalCacheCreationTokens,
+				&s.TotalCostUSD, &s.TotalDurationSeconds,
+			); err != nil {
+				return nil, fmt.Errorf("failed to scan live summary row: %w", err)
+			}
+			results = append(results, s)
+		}
+		return results, liveRows.Err()
 	}
 
 	return results, rows.Err()

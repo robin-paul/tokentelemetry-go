@@ -61,6 +61,9 @@ test.describe('OpenCode synthetic transcript ingestion and session inspector scr
                 await expect(sessionDetailPage.stepScrubber).toBeVisible();
                 await expect(sessionDetailPage.turnCards.first()).toBeVisible();
 
+                await expect(sessionDetailPage.tokensValue).toBeVisible();
+                await expect(sessionDetailPage.netCostValue).toBeVisible();
+
                 const toolBadge = sessionDetailPage.page.getByText('ast_grep_search');
                 await expect(toolBadge).toBeVisible();
 

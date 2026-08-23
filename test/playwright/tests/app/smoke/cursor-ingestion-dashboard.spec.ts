@@ -39,7 +39,7 @@ test.describe('Cursor synthetic transcript ingestion and live dashboard feed', (
             });
 
             await test.step('THEN the dashboard live feed reflects the new session with agent badge, project name, and model', async () => {
-                const sessionRow = dashboardPage.getSessionRow(projectName);
+                const sessionRow = dashboardPage.getSessionRow(projectName).first();
                 await expect(sessionRow).toBeVisible();
                 await expect(sessionRow).toContainText('Cursor');
                 await expect(sessionRow).toContainText('claude-3-5-sonnet');

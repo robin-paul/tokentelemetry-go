@@ -145,6 +145,10 @@ export const test = base.extend<{
 }>({
     transcriptFixture: async ({}, use) => {
         const manager = new FileTranscriptManager();
-        await use(manager);
+        try {
+            await use(manager);
+        } finally {
+            await manager.cleanup();
+        }
     },
 });

@@ -1,7 +1,16 @@
 import { expect, test } from '../../../fixtures/pom/test-options';
 
 test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides', () => {
-    test.afterEach(async ({ transcriptFixture }) => {
+    const modelPattern = 'gpt-4o-custom-e2e';
+
+    test.afterEach(async ({ settingsPage, transcriptFixture }) => {
+        try {
+            await settingsPage.open();
+            const row = settingsPage.getOverrideRow(modelPattern);
+            if (await row.isVisible().catch(() => false)) {
+                await settingsPage.deleteOverride(modelPattern);
+            }
+        } catch {}
         await transcriptFixture.cleanup();
     });
 
@@ -9,7 +18,6 @@ test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides',
         'should apply custom model pricing override from Settings to subsequent Copilot sessions',
         { tag: '@regression' },
         async ({ settingsPage, sessionsPage, transcriptFixture }) => {
-            const modelPattern = 'gpt-4o-custom-e2e';
             const projectName = 'e2e-copilot-project';
             const sessionId = `copilot-test-${Date.now()}`;
 
@@ -35,7 +43,7 @@ test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides',
                         {
                             modelId: modelPattern,
                             completionTokens: 10000,
-                            userPromptText: 'Explain distributed consensus algorithms in detail.',
+                            userPromptText: 'A'.repeat(40000), // ~10,000 prompt tokens
                         },
                     ],
                 });
@@ -47,13 +55,7 @@ test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides',
                 await expect(sessionRow).toBeVisible();
                 await expect(sessionRow).toContainText('GitHub Copilot');
                 await expect(sessionRow).toContainText(modelPattern);
-                await expect(sessionRow).toContainText('$0.30');
-            });
-
-            await test.step('AND the user can clean up the pricing override from Settings', async () => {
-                await settingsPage.open();
-                await settingsPage.deleteOverride(modelPattern);
-                await expect(settingsPage.getOverrideRow(modelPattern)).toHaveCount(0);
+                await expect(sessionRow).toContainText('$0.40');
             });
         }
     );

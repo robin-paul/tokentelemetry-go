@@ -1,3 +1,9 @@
+import { appConfig } from '../../config/app';
+
+export function getBaseUrl(): string {
+    return appConfig.baseUrl;
+}
+
 export function formatDate(value: number | string): string {
     return new Date(value).toLocaleDateString('en-US', {
         year: 'numeric',
