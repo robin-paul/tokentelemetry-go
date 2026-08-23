@@ -69,9 +69,6 @@ export class DashboardPage {
         });
     }
 
-    /**
-     * Returns a specific recent session row by session ID or project substring.
-     */
     getSessionRow(identifier: string): Locator {
         return this.recentSessionRows.filter({ hasText: identifier });
     }

@@ -1,5 +1,6 @@
 import { expect, test } from '../../../fixtures/pom/test-options';
 import { AppRoutes } from '../../../enums/app/app';
+import { appConfig } from '../../../config/app';
 
 test.describe('navigation and dashboard shell', () => {
     test(
@@ -33,6 +34,11 @@ test.describe('navigation and dashboard shell', () => {
                 await expect(page).toHaveURL(new RegExp(AppRoutes.SESSIONS));
             });
 
+            await test.step('WHEN the user navigates to Projects', async () => {
+                await navbar.clickProjects();
+                await expect(page).toHaveURL(new RegExp(AppRoutes.PROJECTS));
+            });
+
             await test.step('WHEN the user navigates to Analytics', async () => {
                 await navbar.clickAnalytics();
                 await expect(page).toHaveURL(new RegExp(AppRoutes.ANALYTICS));
@@ -50,8 +56,9 @@ test.describe('navigation and dashboard shell', () => {
 
             await test.step('WHEN the user navigates back to Overview', async () => {
                 await navbar.clickOverview();
+                const expectedOrigin = new URL(appConfig.appUrl!).origin;
                 await expect(page).toHaveURL(
-                    new RegExp(`^http://127.0.0.1:8000/?$`)
+                    new RegExp(`^${expectedOrigin}/?$`)
                 );
                 await expect(dashboardPage.trendsChart).toBeVisible();
             });

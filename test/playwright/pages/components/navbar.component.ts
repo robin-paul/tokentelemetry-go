@@ -8,6 +8,10 @@ export class NavbarComponent {
 
     // ==================== Locators ====================
 
+    get navContainer(): Locator {
+        return this.page.getByRole('navigation');
+    }
+
     get brandTitle(): Locator {
         return this.page.getByText('TokenTelemetry');
     }
@@ -17,27 +21,27 @@ export class NavbarComponent {
     }
 
     get overviewLink(): Locator {
-        return this.page.getByRole('link', { name: 'Overview' });
+        return this.navContainer.getByRole('link', { name: 'Overview' });
     }
 
     get sessionsLink(): Locator {
-        return this.page.getByRole('link', { name: 'Sessions' });
+        return this.navContainer.getByRole('link', { name: 'Sessions' });
     }
 
     get projectsLink(): Locator {
-        return this.page.getByRole('link', { name: 'Projects' });
+        return this.navContainer.getByRole('link', { name: 'Projects' });
     }
 
     get analyticsLink(): Locator {
-        return this.page.getByRole('link', { name: 'Analytics' });
+        return this.navContainer.getByRole('link', { name: 'Analytics' });
     }
 
     get hermesLink(): Locator {
-        return this.page.getByRole('link', { name: 'Hermes' });
+        return this.navContainer.getByRole('link', { name: 'Hermes' });
     }
 
     get settingsLink(): Locator {
-        return this.page.getByRole('link', { name: 'Settings' });
+        return this.navContainer.getByRole('link', { name: 'Settings' });
     }
 
     get themeToggleButton(): Locator {

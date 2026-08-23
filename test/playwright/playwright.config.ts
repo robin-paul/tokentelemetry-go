@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 
 /**
  * Load environment variables from .env file.
@@ -13,8 +14,9 @@ const environmentPath = `./env/.env.${environment}`;
 dotenv.config({ path: environmentPath, quiet: true });
 
 const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
-const tempDb = path.join(os.tmpdir(), 'tokentelemetry_test.db');
-const tempScanDir = path.join(os.tmpdir(), 'tokentelemetry_test_logs');
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokentelemetry-e2e-'));
+const tempDb = path.join(tempDir, 'test.db');
+const tempScanDir = path.join(tempDir, 'logs');
 
 /**
  * Playwright Test Configuration for TokenTelemetry Go

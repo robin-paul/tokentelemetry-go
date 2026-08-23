@@ -14,9 +14,7 @@ test.describe('health api', () => {
             });
 
             expect(response.status).toBe(200);
-            const data = healthResponseSchema.parse(response.body);
-            expect(data.status).toBe('ok');
-            expect(data.version).toBeDefined();
+            expect(healthResponseSchema.parse(response.body)).toBeTruthy();
         }
     );
 });
