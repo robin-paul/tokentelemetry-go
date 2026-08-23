@@ -368,8 +368,6 @@ func DiscoverDefaultRoots() []string {
 		filepath.Join(home, ".cursor", "projects"),
 		filepath.Join(home, ".copilot", "session-state"),
 		filepath.Join(home, ".local", "share", "opencode"),
-		filepath.Join(home, ".hermes", "telemetry"),
-		filepath.Join(home, ".hermes"),
 		filepath.Join(home, ".grok", "sessions"),
 		filepath.Join(home, ".pi", "agent", "sessions"),
 		filepath.Join(home, ".dsh", "sessions"),

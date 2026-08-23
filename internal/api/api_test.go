@@ -551,7 +551,7 @@ func TestBudgetsAndNotificationsEndpoints(t *testing.T) {
 	}
 }
 
-func TestConfigAndHermesEndpoints(t *testing.T) {
+func TestConfigEndpoints(t *testing.T) {
 	_, _, router, cleanup := setupTestServer(t)
 	defer cleanup()
 
@@ -570,16 +570,6 @@ func TestConfigAndHermesEndpoints(t *testing.T) {
 		"/config/summarizer",
 		"/summarizer/ollama/models",
 		"/summarizer/codex/models",
-		"/hermes/overview",
-		"/hermes/telemetry",
-		"/hermes/sessions",
-		"/hermes/skills",
-		"/hermes/memory",
-		"/hermes/soul",
-		"/hermes/profiles",
-		"/api/hermes/kanban",
-		"/hermes/kanban",
-		"/hermes/tools",
 		"/dsh/lifecycle",
 		"/cache/status",
 	}

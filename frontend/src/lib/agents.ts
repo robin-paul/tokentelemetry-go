@@ -12,7 +12,6 @@ export const AGENT_REGISTRY: Record<string, AgentMeta> = {
   antigravity: { name: 'antigravity', label: 'Antigravity', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
   cursor: { name: 'cursor', label: 'Cursor', color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.12)' },
   copilot: { name: 'copilot', label: 'GitHub Copilot', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.12)' },
-  hermes: { name: 'hermes', label: 'Hermes', color: '#eab308', bg: 'rgba(234, 179, 8, 0.12)' },
   qwen: { name: 'qwen', label: 'Qwen Code', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.12)' },
   grok: { name: 'grok', label: 'Grok Build', color: '#d4d4d8', bg: 'rgba(212, 212, 216, 0.12)' },
   pi: { name: 'pi', label: 'Pi Agent', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.12)' },

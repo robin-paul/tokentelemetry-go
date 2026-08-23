@@ -26,7 +26,6 @@ func NewDefaultRegistry() *Registry {
 	r.Register(NewCursorParser())
 	r.Register(NewCopilotParser())
 	r.Register(NewOpenCodeParser())
-	r.Register(NewHermesParser())
 	r.Register(NewGrokParser())
 	r.Register(NewPiParser())
 	r.Register(NewDSHParser())

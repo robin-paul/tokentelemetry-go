@@ -48,7 +48,6 @@ func (s *Server) Router() http.Handler {
 		router.Get("/sessions/{id}/subagents/{subagent_id}/trace", s.GetSubagentTrace)
 		router.Get("/sessions/{id}/delegation", s.GetDelegation)
 		router.Get("/sessions/{id}/grok-forensics", s.GetGrokForensics)
-		router.Get("/sessions/{id}/hermes-overlay", s.GetHermesOverlay)
 
 		// Stats & Analytics
 		router.Get("/stats", s.GetStats)
@@ -69,9 +68,6 @@ func (s *Server) Router() http.Handler {
 		// Ingestion
 		router.Post("/ingest", s.IngestBatch)
 		router.Post("/v1/ingest", s.IngestBatch)
-
-		// Hermes
-		router.Get("/hermes/kanban", s.GetHermesKanban)
 	}
 
 	// Mount /api and /api/v1 subtrees
@@ -85,7 +81,6 @@ func (s *Server) Router() http.Handler {
 		r.Get("/sessions/{id}/subagents/{subagent_id}/trace", s.GetSubagentTrace)
 		r.Get("/sessions/{id}/delegation", s.GetDelegation)
 		r.Get("/sessions/{id}/grok-forensics", s.GetGrokForensics)
-		r.Get("/sessions/{id}/hermes-overlay", s.GetHermesOverlay)
 	}
 
 	// Additional Root Endpoints
@@ -139,16 +134,6 @@ func (s *Server) Router() http.Handler {
 	r.Get("/sessions/{id}/summary", s.GetSessionSummary)
 	r.Post("/sessions/{id}/summary", s.GenerateSessionSummary)
 	r.Post("/summaries/recent", s.SummarizeRecent)
-
-	// Hermes Subsystem
-	r.Get("/hermes/overview", s.GetHermesOverview)
-	r.Get("/hermes/telemetry", s.GetHermesTelemetry)
-	r.Get("/hermes/sessions", s.GetHermesSessions)
-	r.Get("/hermes/skills", s.GetHermesSkills)
-	r.Get("/hermes/memory", s.GetHermesMemory)
-	r.Get("/hermes/soul", s.GetHermesSoul)
-	r.Get("/hermes/profiles", s.GetHermesProfiles)
-	r.Get("/hermes/tools", s.GetHermesTools)
 
 	// DSH & Cache
 	r.Get("/dsh/lifecycle", s.GetDSHLifecycle)

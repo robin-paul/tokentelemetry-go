@@ -23,7 +23,6 @@ export default defineConfig({
         '/budgets': 'http://localhost:8000',
         '/notifications': 'http://localhost:8000',
         '/config': 'http://localhost:8000',
-        '/hermes': 'http://localhost:8000',
         '/artifacts': 'http://localhost:8000'
       }
     }

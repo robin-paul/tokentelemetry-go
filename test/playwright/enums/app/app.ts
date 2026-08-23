@@ -17,7 +17,6 @@ export enum AppRoutes {
     SESSIONS = '/sessions',
     PROJECTS = '/projects',
     ANALYTICS = '/analytics',
-    HERMES = '/hermes',
     SETTINGS = '/settings',
 }
 
@@ -32,7 +31,6 @@ export enum ApiEndpoints {
     PROJECTS = '/api/projects',
     PRICING = '/api/pricing',
     PRICING_OVERRIDE = '/api/pricing/override',
-    HERMES_KANBAN = '/api/hermes/kanban',
     EVENTS = '/events',
 }
 

@@ -75,7 +75,7 @@ func (r *Resolver) Resolve(modelName, provider string, overrides []models.Pricin
 	r.Dataset.mu.RLock()
 	defer r.Dataset.mu.RUnlock()
 
-	// 2. Provider-specific exact lookup (e.g. from Hermes billing_provider)
+	// 2. Provider-specific exact lookup (e.g. from agent billing_provider)
 	if provider != "" {
 		provKey := strings.ToLower(strings.TrimSpace(provider)) + "\x00" + mNorm
 		if rate, found := r.Dataset.byProvider[provKey]; found {

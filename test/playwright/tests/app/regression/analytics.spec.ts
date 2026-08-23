@@ -1,6 +1,6 @@
 import { expect, test } from '../../../fixtures/pom/test-options';
 
-test.describe('Analytics charts, leaderboards, and Hermes Kanban journeys', () => {
+test.describe('Analytics charts and leaderboards', () => {
     test.afterEach(async ({ transcriptFixture }) => {
         await transcriptFixture.cleanup();
     });
@@ -54,32 +54,6 @@ test.describe('Analytics charts, leaderboards, and Hermes Kanban journeys', () =
                 const cursorAgentRow = analyticsPage.getAgentLeaderboardRow('Cursor');
                 await expect(cursorAgentRow).toBeVisible();
                 await expect(cursorAgentRow).toContainText('Cursor');
-            });
-        }
-    );
-
-    test(
-        'should render Hermes autonomous agent Kanban board with column distribution',
-        { tag: '@regression' },
-        async ({ hermesPage }) => {
-            await test.step('WHEN the user navigates to the Hermes dashboard', async () => {
-                await hermesPage.open();
-                await expect(hermesPage.pageTitle).toBeVisible();
-            });
-
-            await test.step('THEN the gateway status indicator reports Active state', async () => {
-                await expect(hermesPage.gatewayStatusIndicator).toBeVisible();
-            });
-
-            await test.step('AND all three Kanban columns (To Do, In Progress, Done) are visible', async () => {
-                const todoCol = hermesPage.getColumn('To Do');
-                await expect(todoCol).toBeVisible();
-
-                const inProgressCol = hermesPage.getColumn('In Progress');
-                await expect(inProgressCol).toBeVisible();
-
-                const doneCol = hermesPage.getColumn('Done');
-                await expect(doneCol).toBeVisible();
             });
         }
     );

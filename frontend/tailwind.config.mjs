@@ -21,7 +21,6 @@ export default {
           cursor: 'var(--agent-cursor)',
           copilot: 'var(--agent-copilot)',
           opencode: 'var(--agent-opencode)',
-          hermes: 'var(--agent-hermes)',
           grok: 'var(--agent-grok)',
           pi: 'var(--agent-pi)',
           cline: 'var(--agent-cline)',

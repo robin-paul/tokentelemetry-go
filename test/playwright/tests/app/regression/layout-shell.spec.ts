@@ -39,7 +39,6 @@ test.describe('Layout shell and navigation positioning', () => {
                     () => navbar.clickSessions(),
                     () => navbar.clickProjects(),
                     () => navbar.clickAnalytics(),
-                    () => navbar.clickHermes(),
                     () => navbar.clickSettings(),
                 ]) {
                     await navigateAction();

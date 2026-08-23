@@ -25,7 +25,6 @@ test.describe('navigation and dashboard shell', () => {
                 await expect(navbar.sessionsLink).toBeVisible();
                 await expect(navbar.projectsLink).toBeVisible();
                 await expect(navbar.analyticsLink).toBeVisible();
-                await expect(navbar.hermesLink).toBeVisible();
                 await expect(navbar.settingsLink).toBeVisible();
             });
 
@@ -42,11 +41,6 @@ test.describe('navigation and dashboard shell', () => {
             await test.step('WHEN the user navigates to Analytics', async () => {
                 await navbar.clickAnalytics();
                 await expect(page).toHaveURL(new RegExp(AppRoutes.ANALYTICS));
-            });
-
-            await test.step('WHEN the user navigates to Hermes', async () => {
-                await navbar.clickHermes();
-                await expect(page).toHaveURL(new RegExp(AppRoutes.HERMES));
             });
 
             await test.step('WHEN the user navigates to Settings', async () => {

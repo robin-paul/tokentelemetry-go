@@ -4,7 +4,6 @@ import { SessionsPage } from '../../pages/app/sessions.page';
 import { SessionDetailPage } from '../../pages/app/session-detail.page';
 import { SettingsPage } from '../../pages/app/settings.page';
 import { AnalyticsPage } from '../../pages/app/analytics.page';
-import { HermesPage } from '../../pages/app/hermes.page';
 import { NavbarComponent } from '../../pages/components/navbar.component';
 
 /**
@@ -21,8 +20,6 @@ export type FrameworkFixtures = {
     settingsPage: SettingsPage;
     /** Analytics and leaderboards page object */
     analyticsPage: AnalyticsPage;
-    /** Hermes autonomous agent dashboard page object */
-    hermesPage: HermesPage;
     /** Navigation sidebar component object */
     navbar: NavbarComponent;
 };
@@ -45,9 +42,6 @@ export const test = base.extend<FrameworkFixtures>({
     },
     analyticsPage: async ({ page }, use) => {
         await use(new AnalyticsPage(page));
-    },
-    hermesPage: async ({ page }, use) => {
-        await use(new HermesPage(page));
     },
     navbar: async ({ page }, use) => {
         await use(new NavbarComponent(page));

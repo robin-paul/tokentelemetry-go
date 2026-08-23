@@ -4,7 +4,6 @@ import {
   Terminal,
   FolderGit2,
   LineChart,
-  Bot,
   Settings as SettingsIcon,
   Sun,
   Moon,
@@ -54,7 +53,6 @@ export const Navigation: React.FC<NavigationProps> = ({ currentPath: initialPath
     { label: 'Sessions', href: '/sessions', icon: Terminal },
     { label: 'Projects', href: '/projects', icon: FolderGit2 },
     { label: 'Analytics', href: '/analytics', icon: LineChart },
-    { label: 'Hermes', href: '/hermes', icon: Bot },
     { label: 'Settings', href: '/settings', icon: SettingsIcon },
   ];
 

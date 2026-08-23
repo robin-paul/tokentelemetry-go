@@ -12,7 +12,7 @@ import (
 
 func isGenericDir(name string) bool {
 	switch name {
-	case ".", "/", "", ".claude", ".gemini", ".codex", ".cursor", ".copilot", ".hermes",
+	case ".", "/", "", ".claude", ".gemini", ".codex", ".cursor", ".copilot",
 		".grok", ".pi", ".dsh", ".muse", ".prime", ".qwen", ".cline", ".smallcode",
 		".vibe", "sessions", "projects", "brain", "chats", "transcripts",
 		"agent-transcripts", "logs", "opencode", "data":

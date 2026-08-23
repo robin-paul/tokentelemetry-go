@@ -13,7 +13,7 @@ func TestDefaultRegistry(t *testing.T) {
 
 	expectedAgents := []string{
 		"claude_code", "antigravity", "gemini_cli", "codex", "cursor",
-		"copilot", "opencode", "hermes", "grok", "pi", "dsh", "muse",
+		"copilot", "opencode", "grok", "pi", "dsh", "muse",
 		"prime", "qwen", "cline", "smallcode", "vibe", "windsurf", "ollama",
 	}
 
@@ -212,22 +212,6 @@ func TestOpenCodeParser(t *testing.T) {
 	}
 	if sess.AgentName != "opencode" || sess.TotalUsage.InputTokens != 1500 || sess.TotalUsage.OutputTokens != 250 || sess.TotalUsage.CacheReadTokens != 5000 || sess.TotalUsage.CacheCreationTokens != 600 {
 		t.Errorf("unexpected opencode session: %+v", sess)
-	}
-}
-
-func TestHermesParser(t *testing.T) {
-	p := NewHermesParser()
-	if !p.Detect("/Users/dev/.hermes/telemetry/sess.jsonl") {
-		t.Errorf("detection failed for hermes path")
-	}
-
-	jsonl := `{"event":"session_end","session_id":"h-1","model":"hermes-3","input_tokens":500,"output_tokens":100,"cache_read_tokens":200,"cache_write_tokens":50,"end_reason":"completed"}`
-	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	if sess.AgentName != "hermes" || sess.TotalUsage.InputTokens != 500 || sess.TotalUsage.OutputTokens != 100 || sess.Status != "completed" {
-		t.Errorf("unexpected hermes session: %+v", sess)
 	}
 }
 

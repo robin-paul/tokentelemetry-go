@@ -36,10 +36,6 @@ export class NavbarComponent {
         return this.navContainer.getByRole('link', { name: 'Analytics' });
     }
 
-    get hermesLink(): Locator {
-        return this.navContainer.getByRole('link', { name: 'Hermes' });
-    }
-
     get settingsLink(): Locator {
         return this.navContainer.getByRole('link', { name: 'Settings' });
     }
@@ -80,13 +76,6 @@ export class NavbarComponent {
      */
     async clickAnalytics(): Promise<void> {
         await this.analyticsLink.click();
-    }
-
-    /**
-     * Navigates to the Hermes agent dashboard.
-     */
-    async clickHermes(): Promise<void> {
-        await this.hermesLink.click();
     }
 
     /**

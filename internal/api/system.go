@@ -38,7 +38,7 @@ func (s *Server) Version(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Agents(w http.ResponseWriter, r *http.Request) {
 	agents := []string{
 		"claude", "codex", "gemini", "antigravity", "qwen",
-		"cursor", "copilot", "opencode", "hermes", "grok",
+		"cursor", "copilot", "opencode", "grok",
 		"pi", "cline", "muse", "prime", "dsh", "smallcode",
 		"windsurf", "vibe", "ollama",
 	}

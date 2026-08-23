@@ -255,14 +255,3 @@ func (s *Server) GetGrokForensics(w http.ResponseWriter, r *http.Request) {
 		"token_progression": []interface{}{},
 	})
 }
-
-// GetHermesOverlay handles GET /sessions/{id}/hermes-overlay.
-func (s *Server) GetHermesOverlay(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"session_id":   id,
-		"profile":      "default",
-		"log_coverage": "full",
-		"performance":  map[string]interface{}{},
-	})
-}
