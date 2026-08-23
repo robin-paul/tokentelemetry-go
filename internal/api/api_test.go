@@ -608,14 +608,46 @@ func TestArtifactEndpoint(t *testing.T) {
 	_, _ = tmpFile.WriteString(content)
 	_ = tmpFile.Close()
 
-	req := newLocalRequest("GET", fmt.Sprintf("/artifacts?path=%s", tmpFile.Name()), nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	t.Run("ValidArtifact", func(t *testing.T) {
+		req := newLocalRequest("GET", fmt.Sprintf("/artifacts?path=%s", tmpFile.Name()), nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for artifact, got %d: %s", w.Code, w.Body.String())
-	}
-	if w.Body.String() != content {
-		t.Errorf("unexpected artifact content: %s", w.Body.String())
-	}
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for artifact, got %d: %s", w.Code, w.Body.String())
+		}
+		if w.Body.String() != content {
+			t.Errorf("unexpected artifact content: %s", w.Body.String())
+		}
+	})
+
+	t.Run("MissingPath", func(t *testing.T) {
+		req := newLocalRequest("GET", "/artifacts", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for missing path, got %d", w.Code)
+		}
+	})
+
+	t.Run("RelativePath", func(t *testing.T) {
+		req := newLocalRequest("GET", "/artifacts?path=some/relative/path.txt", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for relative path, got %d", w.Code)
+		}
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		req := newLocalRequest("GET", fmt.Sprintf("/artifacts?path=%s/nonexistent_file.txt", os.TempDir()), nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404 for nonexistent artifact, got %d", w.Code)
+		}
+	})
 }
