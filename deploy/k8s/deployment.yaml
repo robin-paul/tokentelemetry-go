@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tokentelemetry-hub
+  namespace: telemetry
+  labels:
+    app: tokentelemetry-hub
+spec:
+  replicas: 1  # Single replica for SQLite WAL single-writer architecture
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tokentelemetry-hub
+  template:
+    metadata:
+      labels:
+        app: tokentelemetry-hub
+    spec:
+      containers:
+        - name: hub
+          image: ghcr.io/robin-paul/tokentelemetry-hub:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: TT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tokentelemetry-secrets
+                  key: auth-token
+                  optional: true
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: tokentelemetry-data
