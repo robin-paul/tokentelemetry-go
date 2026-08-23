@@ -22,10 +22,10 @@ const { title = 'TokenTelemetry', currentPath = '/' } = Astro.props;
       document.documentElement.setAttribute('data-theme', theme);
     </script>
   </head>
-  <body className="bg-[#0a0c10] text-[#e8eaf0] antialiased">
-    <div className="flex min-h-screen bg-[#0a0c10] tt-canvas-glow tt-grid">
+  <body class="bg-[#0a0c10] text-[#e8eaf0] antialiased">
+    <div class="flex min-h-screen bg-[#0a0c10] tt-canvas-glow tt-grid">
       <Navigation client:load currentPath={currentPath} />
-      <main className="flex-1 min-w-0 p-8 overflow-y-auto max-h-screen">
+      <main class="flex-1 min-w-0 p-8 overflow-y-auto max-h-screen">
         <slot />
       </main>
     </div>

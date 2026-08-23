@@ -71,7 +71,7 @@ export default defineConfig({
     webServer: {
         command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tokentelemetry ] || make build ) && ./bin/tokentelemetry --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
         url: `${appUrl}/healthz`,
-        reuseExistingServer: false,
+        reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
         stdout: 'pipe',
         stderr: 'pipe',
         timeout: 30000,
