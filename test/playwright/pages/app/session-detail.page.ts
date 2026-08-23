@@ -1,0 +1,94 @@
+import { Locator, Page } from '@playwright/test';
+import { NavbarComponent } from '../components/navbar.component';
+import { AppRoutes } from '../../enums/app/app';
+
+/**
+ * Page Object for the Session Detail / Inspector view (/sessions/:id).
+ */
+export class SessionDetailPage {
+    readonly nav: NavbarComponent;
+
+    constructor(readonly page: Page) {
+        this.nav = new NavbarComponent(page);
+    }
+
+    // ==================== Locators ====================
+
+    get backToSessionsLink(): Locator {
+        return this.page.getByRole('link', { name: /Back to Sessions/i });
+    }
+
+    get sessionIdHeading(): Locator {
+        return this.page.getByRole('heading');
+    }
+
+    get agentBadge(): Locator {
+        return this.page.locator('span.font-semibold').first();
+    }
+
+    get projectNameLabel(): Locator {
+        return this.page.getByText(/Project:/i);
+    }
+
+    get netCostValue(): Locator {
+        return this.page
+            .locator('div')
+            .filter({ has: this.page.getByText('Net Cost', { exact: true }) })
+            .locator('.text-emerald-400');
+    }
+
+    get tokensValue(): Locator {
+        return this.page
+            .locator('div')
+            .filter({ has: this.page.getByText('Tokens', { exact: true }) })
+            .locator('.text-blue-400');
+    }
+
+    get modelValue(): Locator {
+        return this.page
+            .locator('div')
+            .filter({ has: this.page.getByText('Model', { exact: true }) })
+            .locator('.font-mono');
+    }
+
+    get stepScrubber(): Locator {
+        return this.page.locator('input[type="range"]');
+    }
+
+    get scrubberStepLabel(): Locator {
+        return this.page.getByText(/Step \d+ of \d+/i);
+    }
+
+    get turnCards(): Locator {
+        return this.page.locator('.space-y-3 > .rounded-xl');
+    }
+
+    get subagentRunsSection(): Locator {
+        return this.page.getByText(/Spawned Subagents/i);
+    }
+
+    // ==================== Actions ====================
+
+    /**
+     * Opens a specific Session Detail page at '/sessions/:id'.
+     */
+    async open(sessionId: string): Promise<void> {
+        await this.page.goto(`${AppRoutes.SESSIONS}/${sessionId}`, {
+            waitUntil: 'domcontentloaded',
+        });
+    }
+
+    getTurnCard(turnIndex: number): Locator {
+        return this.turnCards.filter({ hasText: `Turn #${turnIndex}` });
+    }
+
+    getToolsInTurn(turnIndex: number): Locator {
+        return this.getTurnCard(turnIndex).locator('span').filter({ hasText: /\w+/ });
+    }
+
+    async scrubToStep(step: number): Promise<void> {
+        await this.stepScrubber.fill(step.toString());
+        await this.stepScrubber.dispatchEvent('input');
+        await this.stepScrubber.dispatchEvent('change');
+    }
+}

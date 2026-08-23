@@ -16,13 +16,13 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({ projectPath: propP
 
   useEffect(() => {
     let p = propPath;
-    if (!p && typeof window !== 'undefined') {
+    if ((!p || p.startsWith('[')) && typeof window !== 'undefined') {
       const parts = window.location.pathname.split('/').filter(Boolean);
       if (parts[0] === 'projects' && parts[1]) {
         p = decodeURIComponent(parts.slice(1).join('/'));
       }
     }
-    if (p) {
+    if (p && !p.startsWith('[')) {
       apiFetch<{ project: ProjectSummary; sessions: Session[] }>(`/api/projects/${encodeURIComponent(p)}`)
         .then((res) => {
           setProject(res.project);

@@ -1,5 +1,10 @@
 import { test as base } from '@playwright/test';
 import { DashboardPage } from '../../pages/app/dashboard.page';
+import { SessionsPage } from '../../pages/app/sessions.page';
+import { SessionDetailPage } from '../../pages/app/session-detail.page';
+import { SettingsPage } from '../../pages/app/settings.page';
+import { AnalyticsPage } from '../../pages/app/analytics.page';
+import { HermesPage } from '../../pages/app/hermes.page';
 import { NavbarComponent } from '../../pages/components/navbar.component';
 
 /**
@@ -8,6 +13,16 @@ import { NavbarComponent } from '../../pages/components/navbar.component';
 export type FrameworkFixtures = {
     /** TokenTelemetry Overview dashboard page object */
     dashboardPage: DashboardPage;
+    /** Sessions list page object */
+    sessionsPage: SessionsPage;
+    /** Session detail inspector page object */
+    sessionDetailPage: SessionDetailPage;
+    /** Settings and pricing configuration page object */
+    settingsPage: SettingsPage;
+    /** Analytics and leaderboards page object */
+    analyticsPage: AnalyticsPage;
+    /** Hermes autonomous agent dashboard page object */
+    hermesPage: HermesPage;
     /** Navigation sidebar component object */
     navbar: NavbarComponent;
 };
@@ -18,6 +33,21 @@ export type FrameworkFixtures = {
 export const test = base.extend<FrameworkFixtures>({
     dashboardPage: async ({ page }, use) => {
         await use(new DashboardPage(page));
+    },
+    sessionsPage: async ({ page }, use) => {
+        await use(new SessionsPage(page));
+    },
+    sessionDetailPage: async ({ page }, use) => {
+        await use(new SessionDetailPage(page));
+    },
+    settingsPage: async ({ page }, use) => {
+        await use(new SettingsPage(page));
+    },
+    analyticsPage: async ({ page }, use) => {
+        await use(new AnalyticsPage(page));
+    },
+    hermesPage: async ({ page }, use) => {
+        await use(new HermesPage(page));
     },
     navbar: async ({ page }, use) => {
         await use(new NavbarComponent(page));

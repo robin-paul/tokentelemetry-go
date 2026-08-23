@@ -10,10 +10,21 @@ import (
 	"strings"
 )
 
+func isGenericDir(name string) bool {
+	switch name {
+	case ".", "/", "", ".claude", ".gemini", ".codex", ".cursor", ".copilot", ".hermes",
+		".grok", ".pi", ".dsh", ".muse", ".prime", ".qwen", ".cline", ".smallcode",
+		".vibe", "sessions", "projects", "brain", "chats", "transcripts",
+		"agent-transcripts", "logs", "opencode", "data":
+		return true
+	default:
+		return false
+	}
+}
+
 // ExtractProjectName extracts a clean project name from a file path or directory string.
 func ExtractProjectName(filePath string) string {
 	clean := filepath.Clean(filePath)
-	dir := filepath.Dir(clean)
 
 	// Check if any component in the path looks like a URL-encoded path (e.g. %2FUsers%2Fdev%2Fmyproject)
 	parts := strings.Split(clean, string(os.PathSeparator))
@@ -29,26 +40,22 @@ func ExtractProjectName(filePath string) string {
 		}
 	}
 
-	// Try checking common project directories in path
-	for i := len(parts) - 1; i >= 0; i-- {
+	// Direct parent directory if not generic
+	dir := filepath.Dir(clean)
+	base := filepath.Base(dir)
+	if !isGenericDir(base) {
+		return base
+	}
+
+	// Search up the path parts for the closest non-generic project directory
+	for i := len(parts) - 2; i >= 0; i-- {
 		part := parts[i]
-		if part == ".claude" || part == ".gemini" || part == ".codex" || part == ".cursor" ||
-			part == ".copilot" || part == ".hermes" || part == ".grok" || part == ".pi" ||
-			part == ".dsh" || part == ".muse" || part == ".prime" || part == ".qwen" ||
-			part == ".cline" || part == ".smallcode" || part == ".vibe" || part == "sessions" ||
-			part == "projects" || part == "brain" || part == "chats" || part == "transcripts" ||
-			part == "agent-transcripts" || part == "logs" {
-			if i > 0 {
-				return parts[i-1]
-			}
+		if !isGenericDir(part) {
+			return part
 		}
 	}
 
-	base := filepath.Base(dir)
-	if base == "." || base == "/" || base == "" {
-		base = filepath.Base(clean)
-	}
-	return base
+	return "root"
 }
 
 // ExtractSessionID extracts a session ID from a file path or filename.

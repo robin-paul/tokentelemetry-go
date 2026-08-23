@@ -26,14 +26,14 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
 
   useEffect(() => {
     let id = propSessionId;
-    if (!id && typeof window !== 'undefined') {
+    if ((!id || id === '[id]') && typeof window !== 'undefined') {
       const parts = window.location.pathname.split('/').filter(Boolean);
       if (parts[0] === 'sessions' && parts[1]) {
-        id = parts[1];
+        id = decodeURIComponent(parts[1]);
       }
     }
-    if (id) {
-      apiFetch<Session>(`/api/sessions/${id}`)
+    if (id && id !== '[id]') {
+      apiFetch<Session>(`/api/sessions/${encodeURIComponent(id)}`)
         .then((data) => {
           setSession(data);
           if (data.turns && data.turns.length > 0) {
@@ -203,19 +203,28 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                 </div>
 
                 {/* Tools invoked */}
-                {turn.tools_invoked && turn.tools_invoked.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {turn.tools_invoked.map((tool, tIdx) => (
-                      <span
-                        key={tIdx}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[11px] font-mono"
-                      >
-                        <Wrench className="w-3 h-3" />
-                        {tool}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  let tools = turn.tools_invoked;
+                  if ((!tools || tools.length === 0) && turn.tools_invoked_json) {
+                    try {
+                      tools = JSON.parse(turn.tools_invoked_json);
+                    } catch {}
+                  }
+                  if (!tools || tools.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {tools.map((tool, tIdx) => (
+                        <span
+                          key={tIdx}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[11px] font-mono"
+                        >
+                          <Wrench className="w-3 h-3" />
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

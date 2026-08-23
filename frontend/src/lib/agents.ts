@@ -24,6 +24,7 @@ export const AGENT_REGISTRY: Record<string, AgentMeta> = {
   windsurf: { name: 'windsurf', label: 'Windsurf', color: '#0ea5e9', bg: 'rgba(14, 165, 233, 0.12)' },
   vibe: { name: 'vibe', label: 'Mistral Vibe', color: '#f472b6', bg: 'rgba(244, 114, 182, 0.12)' },
   ollama: { name: 'ollama', label: 'Ollama', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.12)' },
+  opencode: { name: 'opencode', label: 'OpenCode', color: '#10b981', bg: 'rgba(16, 185, 129, 0.12)' },
 };
 
 export function getAgentMeta(agentName: string | undefined): AgentMeta {

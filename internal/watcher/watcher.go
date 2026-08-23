@@ -75,6 +75,10 @@ func (w *Watcher) AddRoot(root string) error {
 				return filepath.SkipDir
 			}
 			_ = w.addSinglePath(path)
+		} else {
+			if w.scanner != nil && w.scanner.GetRegistry().Detect(path) != nil {
+				w.scanner.EnqueueFile(path)
+			}
 		}
 		return nil
 	})

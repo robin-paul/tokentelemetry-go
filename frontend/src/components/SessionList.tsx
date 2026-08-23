@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Search, FolderGit2, ChevronLeft, ChevronRight } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { apiFetch, subscribeEvents } from '../lib/api';
 import { formatCost, formatDuration, formatTokens, formatDate } from '../lib/format';
 import { getAgentMeta } from '../lib/agents';
 import type { Session } from '../lib/types';
@@ -39,6 +39,19 @@ export const SessionList: React.FC = () => {
 
   useEffect(() => {
     fetchSessions();
+
+    const unsubscribe = subscribeEvents((event) => {
+      if (event.type === 'session.created' || event.type === 'session.updated') {
+        fetchSessions();
+        apiFetch<string[]>('/agents')
+          .then((res) => setAgents(res || []))
+          .catch(() => {});
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [page, selectedAgent]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {

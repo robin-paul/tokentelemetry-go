@@ -2,7 +2,7 @@ VERSION ?= 1.0.0
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
 
-.PHONY: all build-frontend build-backend build test clean
+.PHONY: all build-frontend build-backend build test test-ui test-ui-smoke test-ui-headed clean
 
 all: build
 
@@ -19,6 +19,18 @@ build: build-frontend build-backend
 
 test:
 	go test -v -race ./...
+
+test-ui: build
+	@echo "==> Running Playwright End-to-End Suite..."
+	cd test/playwright && ( [ -d node_modules ] || npm ci ) && npx playwright test
+
+test-ui-smoke: build
+	@echo "==> Running Playwright Smoke Tests..."
+	cd test/playwright && ( [ -d node_modules ] || npm ci ) && npx playwright test --grep @smoke
+
+test-ui-headed: build
+	@echo "==> Running Playwright Tests in Headed Mode..."
+	cd test/playwright && ( [ -d node_modules ] || npm ci ) && npx playwright test --headed
 
 clean:
 	rm -rf bin/ internal/web/dist frontend/dist

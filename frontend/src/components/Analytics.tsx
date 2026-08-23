@@ -13,7 +13,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { apiFetch } from '../lib/api';
+import { apiFetch, subscribeEvents } from '../lib/api';
 import { formatCost, formatTokens } from '../lib/format';
 import { getAgentMeta } from '../lib/agents';
 import type { LeaderboardEntry } from '../lib/types';
@@ -24,7 +24,7 @@ export const Analytics: React.FC = () => {
   const [agentLeaderboard, setAgentLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadData = () => {
     Promise.all([
       apiFetch<any>('/api/analytics'),
       apiFetch<{ models: LeaderboardEntry[]; agents: LeaderboardEntry[] }>('/api/leaderboard?limit=10'),
@@ -36,6 +36,16 @@ export const Analytics: React.FC = () => {
       })
       .catch((e) => console.error('Failed to load analytics data', e))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = subscribeEvents((event) => {
+      if (event.type === 'session.created' || event.type === 'session.updated') {
+        loadData();
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   const byDay = analyticsData?.by_day || [];

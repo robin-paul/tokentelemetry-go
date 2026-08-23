@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -70,6 +71,9 @@ func (s *Server) DeletePricingOverride(w http.ResponseWriter, r *http.Request) {
 	pattern := chi.URLParam(r, "pattern")
 	if pattern == "" {
 		pattern = chi.URLParam(r, "*")
+	}
+	if decoded, err := url.PathUnescape(pattern); err == nil && decoded != "" {
+		pattern = decoded
 	}
 	if pattern == "" {
 		respondError(w, http.StatusBadRequest, "Missing model pattern")

@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -89,6 +90,9 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		id = chi.URLParam(r, "session_id")
 	}
+	if decoded, err := url.PathUnescape(id); err == nil && decoded != "" {
+		id = decoded
+	}
 	if id == "" {
 		respondError(w, http.StatusBadRequest, "Missing session ID")
 		return
@@ -112,6 +116,9 @@ func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		id = chi.URLParam(r, "session_id")
+	}
+	if decoded, err := url.PathUnescape(id); err == nil && decoded != "" {
+		id = decoded
 	}
 	if id == "" {
 		respondError(w, http.StatusBadRequest, "Missing session ID")

@@ -55,7 +55,7 @@ func (d *DB) RollupDailySummariesForDate(ctx context.Context, date string) error
 		total_cost_usd, total_duration_seconds
 	)
 	SELECT
-		strftime('%Y-%m-%d', start_time) AS date,
+		substr(start_time, 1, 10) AS date,
 		agent_name,
 		project_name,
 		model_resolved AS model_name,
@@ -67,8 +67,8 @@ func (d *DB) RollupDailySummariesForDate(ctx context.Context, date string) error
 		COALESCE(SUM(net_cost_usd), 0) AS total_cost_usd,
 		COALESCE(SUM(duration_seconds), 0) AS total_duration_seconds
 	FROM sessions
-	WHERE strftime('%Y-%m-%d', start_time) = ?
-	GROUP BY strftime('%Y-%m-%d', start_time), agent_name, project_name, model_resolved
+	WHERE (strftime('%Y-%m-%d', start_time) = ? OR substr(start_time, 1, 10) = ?)
+	GROUP BY substr(start_time, 1, 10), agent_name, project_name, model_resolved
 	ON CONFLICT(date, agent_name, project_name, model_name) DO UPDATE SET
 		total_sessions = excluded.total_sessions,
 		total_input_tokens = excluded.total_input_tokens,
@@ -79,7 +79,7 @@ func (d *DB) RollupDailySummariesForDate(ctx context.Context, date string) error
 		total_duration_seconds = excluded.total_duration_seconds;
 	`
 	return d.WithTx(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, query, date)
+		_, err := tx.ExecContext(ctx, query, date, date)
 		return err
 	})
 }
@@ -145,6 +145,76 @@ func (d *DB) QueryDailySummaries(ctx context.Context, from, to, agent, project, 
 		}
 		results = append(results, s)
 	}
+
+	if len(results) == 0 {
+		var sessionWhere []string
+		var sessionArgs []interface{}
+
+		if from != "" {
+			sessionWhere = append(sessionWhere, "substr(start_time, 1, 10) >= ?")
+			sessionArgs = append(sessionArgs, from)
+		}
+		if to != "" {
+			sessionWhere = append(sessionWhere, "substr(start_time, 1, 10) <= ?")
+			sessionArgs = append(sessionArgs, to)
+		}
+		if agent != "" {
+			sessionWhere = append(sessionWhere, "agent_name = ?")
+			sessionArgs = append(sessionArgs, agent)
+		}
+		if project != "" {
+			sessionWhere = append(sessionWhere, "project_name = ?")
+			sessionArgs = append(sessionArgs, project)
+		}
+		if model != "" {
+			sessionWhere = append(sessionWhere, "(model_resolved = ? OR model_raw = ?)")
+			sessionArgs = append(sessionArgs, model, model)
+		}
+
+		sWhereSQL := ""
+		if len(sessionWhere) > 0 {
+			sWhereSQL = "WHERE " + strings.Join(sessionWhere, " AND ")
+		}
+
+		liveQuery := fmt.Sprintf(`
+		SELECT
+			CASE
+				WHEN substr(start_time, 1, 4) = '0001' OR start_time IS NULL OR start_time = '' THEN substr(created_at, 1, 10)
+				ELSE substr(start_time, 1, 10)
+			END AS date,
+			agent_name,
+			project_name,
+			model_resolved AS model_name,
+			COUNT(*) AS total_sessions,
+			COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+			COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+			COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation_tokens,
+			COALESCE(SUM(net_cost_usd), 0) AS total_cost_usd,
+			COALESCE(SUM(duration_seconds), 0) AS total_duration_seconds
+		FROM sessions
+		%s
+		GROUP BY 1, agent_name, project_name, model_resolved
+		ORDER BY date ASC;
+		`, sWhereSQL)
+
+		liveRows, err := d.readerDB.QueryContext(ctx, liveQuery, sessionArgs...)
+		if err == nil {
+			defer liveRows.Close()
+			for liveRows.Next() {
+				var s models.DailySummary
+				if err := liveRows.Scan(
+					&s.Date, &s.AgentName, &s.ProjectName, &s.ModelName,
+					&s.TotalSessions, &s.TotalInputTokens, &s.TotalOutputTokens,
+					&s.TotalCacheReadTokens, &s.TotalCacheCreationTokens,
+					&s.TotalCostUSD, &s.TotalDurationSeconds,
+				); err == nil {
+					results = append(results, s)
+				}
+			}
+		}
+	}
+
 	return results, rows.Err()
 }
 

@@ -8,7 +8,7 @@ import { AppRoutes } from '../../enums/app/app';
 export class DashboardPage {
     readonly nav: NavbarComponent;
 
-    constructor(private readonly page: Page) {
+    constructor(readonly page: Page) {
         this.nav = new NavbarComponent(page);
     }
 
@@ -21,19 +21,43 @@ export class DashboardPage {
     }
 
     get totalTokensCard(): Locator {
-        return this.page.getByText('Total Tokens');
+        return this.page
+            .locator('div.rounded-xl')
+            .filter({ has: this.page.getByText('Total Tokens', { exact: true }) });
+    }
+
+    get totalTokensValue(): Locator {
+        return this.totalTokensCard.locator('.text-2xl');
     }
 
     get netCostCard(): Locator {
-        return this.page.getByText('Net Billable Cost');
+        return this.page
+            .locator('div.rounded-xl')
+            .filter({ has: this.page.getByText('Net Billable Cost', { exact: true }) });
+    }
+
+    get netCostValue(): Locator {
+        return this.netCostCard.locator('.text-2xl');
     }
 
     get indexedSessionsCard(): Locator {
-        return this.page.getByText('Indexed Sessions');
+        return this.page
+            .locator('div.rounded-xl')
+            .filter({ has: this.page.getByText('Indexed Sessions', { exact: true }) });
+    }
+
+    get indexedSessionsValue(): Locator {
+        return this.indexedSessionsCard.locator('.text-2xl');
     }
 
     get activeAgentsCard(): Locator {
-        return this.page.getByText('Active Ecosystem');
+        return this.page
+            .locator('div.rounded-xl')
+            .filter({ has: this.page.getByText('Active Ecosystem', { exact: true }) });
+    }
+
+    get activeAgentsValue(): Locator {
+        return this.activeAgentsCard.locator('.text-2xl');
     }
 
     get trendsChart(): Locator {

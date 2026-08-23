@@ -113,7 +113,7 @@ func main() {
 		}
 
 		reconciler := watcher.NewReconciler(scannerEngine, watcher.ReconcilerConfig{
-			Interval: 60 * time.Second,
+			Interval: 2 * time.Second,
 			Roots:    roots,
 		})
 		reconciler.Start(ctx)

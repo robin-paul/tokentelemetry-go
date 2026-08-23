@@ -204,6 +204,7 @@ func (e *Engine) commitBatch(ctx context.Context, sessions []*models.Session) {
 	}
 
 	affectedDates := make(map[string]bool)
+	var committed []*models.Session
 
 	for _, s := range sessions {
 		// Save session, message turns, and subagent runs
@@ -211,21 +212,27 @@ func (e *Engine) commitBatch(ctx context.Context, sessions []*models.Session) {
 			continue
 		}
 
+		committed = append(committed, s)
+
 		// Track date for summary rollup
 		dateStr := s.StartTime.Format("2006-01-02")
-		if dateStr != "" {
+		if dateStr != "" && dateStr != "0001-01-01" {
 			affectedDates[dateStr] = true
-		}
-
-		// Check if it's a new or updated session
-		if e.onSessionEvent != nil {
-			e.onSessionEvent(events.EventSessionCreated, s)
+		} else {
+			affectedDates[time.Now().Format("2006-01-02")] = true
 		}
 	}
 
-	// Rollup affected daily summaries
+	// Rollup affected daily summaries BEFORE broadcasting events
 	for date := range affectedDates {
 		_ = e.db.RollupDailySummariesForDate(ctx, date)
+	}
+
+	// Broadcast events after database state and daily summaries are committed
+	if e.onSessionEvent != nil {
+		for _, s := range committed {
+			e.onSessionEvent(events.EventSessionCreated, s)
+		}
 	}
 }
 

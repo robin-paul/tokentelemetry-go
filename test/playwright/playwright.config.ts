@@ -14,9 +14,15 @@ const environmentPath = `./env/.env.${environment}`;
 dotenv.config({ path: environmentPath, quiet: true });
 
 const appUrl = process.env.APP_URL || 'http://127.0.0.1:8000';
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokentelemetry-e2e-'));
-const tempDb = path.join(tempDir, 'test.db');
-const tempScanDir = path.join(tempDir, 'logs');
+const tempDir = process.env.E2E_TEMP_DIR || path.join(os.tmpdir(), 'tokentelemetry-e2e-run');
+const tempDb = process.env.E2E_DB_PATH || path.join(tempDir, 'test.db');
+const tempScanDir = process.env.E2E_SCAN_DIR || path.join(tempDir, 'logs');
+
+fs.mkdirSync(tempScanDir, { recursive: true });
+
+process.env.E2E_TEMP_DIR = tempDir;
+process.env.E2E_SCAN_DIR = tempScanDir;
+process.env.E2E_DB_PATH = tempDb;
 
 /**
  * Playwright Test Configuration for TokenTelemetry Go
@@ -65,7 +71,7 @@ export default defineConfig({
     webServer: {
         command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tokentelemetry ] || make build ) && ./bin/tokentelemetry --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
         url: `${appUrl}/healthz`,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: false,
         stdout: 'pipe',
         stderr: 'pipe',
         timeout: 30000,

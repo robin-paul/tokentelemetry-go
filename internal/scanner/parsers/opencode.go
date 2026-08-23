@@ -45,6 +45,8 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 			Model     string `json:"model"`
 			ModelID   string `json:"modelID"`
 			Timestamp int64  `json:"timestamp"`
+			Tool      string `json:"tool"`
+			Name      string `json:"name"`
 			Tokens    *struct {
 				Input  int64 `json:"input"`
 				Output int64 `json:"output"`
@@ -55,6 +57,8 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 			} `json:"tokens"`
 			Data *struct {
 				Type   string `json:"type"`
+				Name   string `json:"name"`
+				Tool   string `json:"tool"`
 				Tokens *struct {
 					Input  int64 `json:"input"`
 					Output int64 `json:"output"`
@@ -94,6 +98,17 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 			tokens = item.Data.Tokens
 		}
 
+		var toolName string
+		if item.Data != nil && item.Data.Name != "" {
+			toolName = item.Data.Name
+		} else if item.Data != nil && item.Data.Tool != "" {
+			toolName = item.Data.Tool
+		} else if item.Name != "" {
+			toolName = item.Name
+		} else if item.Tool != "" {
+			toolName = item.Tool
+		}
+
 		if tokens != nil {
 			turnIndex++
 			var cacheRead, cacheWrite int64
@@ -102,11 +117,17 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 				cacheWrite = tokens.Cache.Write
 			}
 
+			tools := make([]string, 0)
+			if toolName != "" {
+				tools = append(tools, toolName)
+			}
+
 			turn := Turn{
 				Index:     turnIndex,
 				Timestamp: ts,
 				Role:      "assistant",
 				Model:     session.Model,
+				Tools:     tools,
 				Usage: TokenUsage{
 					InputTokens:         tokens.Input,
 					OutputTokens:        tokens.Output,
