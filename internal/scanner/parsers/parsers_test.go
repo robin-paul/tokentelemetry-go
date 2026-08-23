@@ -55,6 +55,7 @@ func TestAntigravityParser(t *testing.T) {
 		t.Errorf("detection failed for antigravity path")
 	}
 
+	// 1. Default fallback to gemini-3.7-flash
 	jsonl := `{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"Fix the bug","created_at":"2026-06-10T12:00:00Z"}
 {"step_index":2,"source":"MODEL","type":"MODEL_RESPONSE","content":"Running fix","created_at":"2026-06-10T12:00:05Z","tool_calls":[{"name":"exec_command"}],"metrics":{"input_tokens":50,"output_tokens":25,"cache_read_tokens":0,"cache_creation_tokens":0}}`
 	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
@@ -64,11 +65,38 @@ func TestAntigravityParser(t *testing.T) {
 	if sess.AgentName != "antigravity" {
 		t.Errorf("expected agent antigravity, got %s", sess.AgentName)
 	}
+	if sess.Model != "gemini-3.7-flash" {
+		t.Errorf("expected default model gemini-3.7-flash, got %s", sess.Model)
+	}
 	if sess.TotalUsage.InputTokens != 52 || sess.TotalUsage.OutputTokens != 25 {
 		t.Errorf("unexpected usage: %+v", sess.TotalUsage)
 	}
 	if len(sess.Turns) != 2 {
 		t.Errorf("expected 2 turns, got %d", len(sess.Turns))
+	}
+
+	// 2. Dynamic model detection from USER_SETTINGS_CHANGE
+	jsonlWithSettings := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-08-23T21:06:58Z","content":"<USER_REQUEST>\nFix the bug\n</USER_REQUEST>\n<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 3.7 Flash (High). No need to comment on this change if the user doesn't ask about it.\n</USER_SETTINGS_CHANGE>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-08-23T21:07:00Z","tool_calls":[{"name":"view_file","args":{}}],"metrics":{"input_tokens":100,"output_tokens":40}}`
+	sess2, _, err := p.Parse(strings.NewReader(jsonlWithSettings), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess2.Model != "gemini-3.7-flash" {
+		t.Errorf("expected model gemini-3.7-flash, got %s", sess2.Model)
+	}
+	if sess2.Turns[0].Model != "gemini-3.7-flash" || sess2.Turns[1].Model != "gemini-3.7-flash" {
+		t.Errorf("expected turn models to be gemini-3.7-flash, got turn0=%s turn1=%s", sess2.Turns[0].Model, sess2.Turns[1].Model)
+	}
+
+	// 3. Dynamic model detection for Gemini 2.5 Pro
+	jsonlPro := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-08-23T21:06:58Z","content":"<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 2.5 Pro (High).\n</USER_SETTINGS_CHANGE>"}`
+	sess3, _, err := p.Parse(strings.NewReader(jsonlPro), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess3.Model != "gemini-2.5-pro" {
+		t.Errorf("expected model gemini-2.5-pro, got %s", sess3.Model)
 	}
 }
 

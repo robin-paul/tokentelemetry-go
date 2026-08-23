@@ -172,3 +172,59 @@ func TestCobraWatchGracefulShutdown(t *testing.T) {
 		t.Fatalf("expected clean shutdown on context cancellation, got: %v", err)
 	}
 }
+
+func TestCobraSessionsCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Setup sample Antigravity session
+	agDir := filepath.Join(tmpDir, ".gemini", "antigravity-cli", "brain", "session-ag-1", ".system_generated", "logs")
+	if err := os.MkdirAll(agDir, 0755); err != nil {
+		t.Fatalf("failed to create antigravity dir: %v", err)
+	}
+	agContent := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-08-23T10:00:00Z","content":"<USER_SETTINGS_CHANGE>\nThe user changed setting ` + "`Model Selection`" + ` from None to Gemini 3.7 Flash (High).\n</USER_SETTINGS_CHANGE>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","created_at":"2026-08-23T10:00:05Z","tool_calls":[{"name":"view_file"}],"metrics":{"input_tokens":3000,"output_tokens":600,"cache_read_tokens":1000}}
+`
+	if err := os.WriteFile(filepath.Join(agDir, "transcript.jsonl"), []byte(agContent), 0644); err != nil {
+		t.Fatalf("failed to write antigravity session: %v", err)
+	}
+
+	// 2. Test tt sessions --plain
+	cmd := NewRootCmd()
+	plainBuf := new(bytes.Buffer)
+	cmd.SetOut(plainBuf)
+	cmd.SetArgs([]string{"sessions", "--plain", "--harness", "antigravity", tmpDir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("failed to run tt sessions --plain: %v", err)
+	}
+	plainOut := plainBuf.String()
+	if !strings.Contains(plainOut, "TokenTelemetry Discovered Sessions") {
+		t.Fatalf("expected header in plain output, got: %s", plainOut)
+	}
+	if !strings.Contains(plainOut, "antigravity") {
+		t.Fatalf("expected antigravity harness in plain output, got: %s", plainOut)
+	}
+	if !strings.Contains(plainOut, "gemini-3.7-flash") {
+		t.Fatalf("expected gemini-3.7-flash in plain output, got: %s", plainOut)
+	}
+
+	// 3. Test tt sessions --json
+	cmd = NewRootCmd()
+	jsonBuf := new(bytes.Buffer)
+	cmd.SetOut(jsonBuf)
+	cmd.SetArgs([]string{"sessions", "--json", "--limit", "5", tmpDir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("failed to run tt sessions --json: %v", err)
+	}
+
+	var jsonSessions []*models.Session
+	if err := json.Unmarshal(jsonBuf.Bytes(), &jsonSessions); err != nil {
+		t.Fatalf("failed to decode JSON sessions output: %v, raw: %s", err, jsonBuf.String())
+	}
+	if len(jsonSessions) != 1 {
+		t.Fatalf("expected 1 session in JSON output, got %d", len(jsonSessions))
+	}
+	if jsonSessions[0].ModelRaw != "gemini-3.7-flash" {
+		t.Fatalf("expected model gemini-3.7-flash in JSON output, got %s", jsonSessions[0].ModelRaw)
+	}
+}
+

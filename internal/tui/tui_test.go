@@ -205,3 +205,130 @@ func TestTUISinkThreadSafety(t *testing.T) {
 		t.Fatalf("expected clean close: %v", err)
 	}
 }
+
+func TestTUIViewModeToggle(t *testing.T) {
+	m := NewModel("http://localhost:8000", 3)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(Model)
+
+	if m.ViewMode != ViewModeLive {
+		t.Fatalf("expected initial ViewMode to be ViewModeLive")
+	}
+
+	// Press Tab to switch to Sessions view
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	if m.ViewMode != ViewModeSessions {
+		t.Fatalf("expected ViewModeSessions after pressing Tab")
+	}
+	view := m.View()
+	if !strings.Contains(view, "SESSIONS VIEW") || !strings.Contains(view, "RECENT SESSIONS") {
+		t.Fatalf("expected Sessions View to be rendered, got: %s", view)
+	}
+
+	// Press 's' to switch back to Live Turns view
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(Model)
+	if m.ViewMode != ViewModeLive {
+		t.Fatalf("expected ViewModeLive after pressing 's'")
+	}
+	if !strings.Contains(m.View(), "LIVE TURNS") {
+		t.Fatalf("expected LIVE TURNS badge in Live view")
+	}
+}
+
+func TestTUISessionsViewAndInspector(t *testing.T) {
+	sess1 := &models.Session{
+		ID:              "antigravity:sess-ag-1",
+		SessionID:       "sess-ag-1",
+		AgentName:       "antigravity",
+		ProjectName:     "token-analyzer",
+		FilePath:        "/path/to/transcript.jsonl",
+		ModelRaw:        "gemini-3.7-flash",
+		ModelResolved:   "gemini-3.7-flash",
+		InputTokens:     4000,
+		OutputTokens:    1200,
+		CacheReadTokens: 10000,
+		GrossCostUSD:    0.0400,
+		NetCostUSD:      0.0250,
+		Status:          "completed",
+		Turns: []models.MessageTurn{
+			{
+				TurnIndex:    1,
+				Role:         "user",
+				InputTokens:  50,
+				OutputTokens: 0,
+			},
+			{
+				TurnIndex:       2,
+				Role:            "assistant",
+				ModelName:       "gemini-3.7-flash",
+				InputTokens:     3950,
+				OutputTokens:    1200,
+				CacheReadTokens: 10000,
+				CostUSD:         0.0250,
+				ToolsInvoked:    []string{"view_file", "run_command"},
+			},
+		},
+		SubagentRuns: []models.SubagentRun{
+			{
+				ChildSessionID: "sub-123",
+				AgentType:      "researcher",
+				Tokens:         1500,
+				CostUSD:        0.0050,
+			},
+		},
+	}
+
+	sess2 := &models.Session{
+		ID:          "claude:sess-cl-1",
+		SessionID:   "sess-cl-1",
+		AgentName:   "claude_code",
+		ProjectName: "token-analyzer",
+		ModelRaw:    "claude-3-7-sonnet",
+		Turns:       make([]models.MessageTurn, 1),
+	}
+
+	m := NewSessionsModel("http://localhost:8000", 2, []*models.Session{sess1, sess2}, "")
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 140, Height: 35})
+	m = updated.(Model)
+
+	if m.ViewMode != ViewModeSessions {
+		t.Fatalf("expected ViewModeSessions")
+	}
+	if len(m.FilteredSessions) != 2 {
+		t.Fatalf("expected 2 filtered sessions, got %d", len(m.FilteredSessions))
+	}
+
+	// Verify SelectedSession and View rendering
+	selected := m.SelectedSession()
+	if selected == nil || selected.ID != "antigravity:sess-ag-1" {
+		t.Fatalf("expected first selected session to be antigravity:sess-ag-1, got %+v", selected)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "gemini-3.7-flash") {
+		t.Fatalf("expected view to contain gemini-3.7-flash")
+	}
+	if !strings.Contains(view, "view_file, run_command") {
+		t.Fatalf("expected tools in inspector pane")
+	}
+	if !strings.Contains(view, "sub-123") {
+		t.Fatalf("expected subagent in inspector pane")
+	}
+
+	// Test Harness Filter cycling with 'h'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = updated.(Model)
+	if m.HarnessFilter == "" {
+		t.Fatalf("expected non-empty harness filter after cycling 'h'")
+	}
+
+	// Test Inspector Toggle with Enter
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if !m.ExpandedInspector {
+		t.Fatalf("expected ExpandedInspector to be true after pressing Enter")
+	}
+}
+

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -476,3 +478,104 @@ func (p *Pipeline) PingHub(ctx context.Context) (*HubHealth, error) {
 		ServerVersion: ver,
 	}, nil
 }
+
+// CollectSessions scans roots, filters by harness (if specified), sorts newest first, and returns up to limit sessions.
+func (p *Pipeline) CollectSessions(ctx context.Context, roots []string, harnessFilter string, limit int) ([]*models.Session, error) {
+	if len(roots) == 0 {
+		roots = p.cfg.ScanRoots
+	}
+
+	type fileCandidate struct {
+		path    string
+		modTime time.Time
+	}
+
+	var candidates []fileCandidate
+	registry := p.scannerEngine.GetRegistry()
+
+	for _, root := range roots {
+		fi, err := os.Stat(root)
+		if err != nil {
+			continue
+		}
+
+		if !fi.IsDir() {
+			parser := registry.Detect(root)
+			if parser != nil {
+				if harnessFilter == "" || strings.EqualFold(parser.AgentName(), harnessFilter) || strings.Contains(strings.ToLower(parser.AgentName()), strings.ToLower(harnessFilter)) {
+					candidates = append(candidates, fileCandidate{path: root, modTime: fi.ModTime()})
+				}
+			}
+			continue
+		}
+
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				name := d.Name()
+				if name == ".git" || name == "node_modules" || name == "dist" || name == ".cache" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			parser := registry.Detect(path)
+			if parser != nil {
+				if harnessFilter == "" || strings.EqualFold(parser.AgentName(), harnessFilter) || strings.Contains(strings.ToLower(parser.AgentName()), strings.ToLower(harnessFilter)) {
+					if info, err := d.Info(); err == nil {
+						candidates = append(candidates, fileCandidate{path: path, modTime: info.ModTime()})
+					} else {
+						candidates = append(candidates, fileCandidate{path: path, modTime: time.Now()})
+					}
+				}
+			}
+			return nil
+		})
+	}
+
+	// Sort candidates by modTime descending
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].modTime.After(candidates[j].modTime)
+	})
+
+	var sessions []*models.Session
+	for _, c := range candidates {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		sess, err := p.scannerEngine.ScanFile(ctx, c.path)
+		if err != nil || sess == nil {
+			continue
+		}
+
+		if harnessFilter != "" && !strings.EqualFold(sess.AgentName, harnessFilter) && !strings.Contains(strings.ToLower(sess.AgentName), strings.ToLower(harnessFilter)) {
+			continue
+		}
+
+		sessions = append(sessions, sess)
+	}
+
+	// Sort sessions by StartTime or EndTime descending
+	sort.Slice(sessions, func(i, j int) bool {
+		t1 := sessions[i].StartTime
+		if t1.IsZero() {
+			t1 = sessions[i].CreatedAt
+		}
+		t2 := sessions[j].StartTime
+		if t2.IsZero() {
+			t2 = sessions[j].CreatedAt
+		}
+		return t1.After(t2)
+	})
+
+	if limit > 0 && len(sessions) > limit {
+		sessions = sessions[:limit]
+	}
+
+	return sessions, nil
+}
+

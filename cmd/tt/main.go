@@ -75,6 +75,7 @@ and streams telemetry batches to the TokenTelemetry Hub.`,
 	// Subcommands
 	rootCmd.AddCommand(newWatchCmd())
 	rootCmd.AddCommand(newScanCmd())
+	rootCmd.AddCommand(newSessionsCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newSendCmd())

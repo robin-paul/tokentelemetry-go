@@ -2,12 +2,22 @@ package tui
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dustin/go-humanize"
 	"github.com/robin-paul/tokentelemetry-go/internal/models"
+)
+
+// ViewMode represents the active screen view in the TUI.
+type ViewMode int
+
+const (
+	ViewModeLive ViewMode = iota
+	ViewModeSessions
 )
 
 // Message types for Bubble Tea event loop
@@ -42,27 +52,34 @@ type TokenSample struct {
 
 // Model represents the state machine for the interactive Bubble Tea terminal dashboard.
 type Model struct {
-	Width                   int
-	Height                  int
-	Table                   table.Model
-	Rows                    []table.Row
-	TotalInputTokens        int64
-	TotalOutputTokens       int64
-	TotalCacheReadTokens    int64
+	Width                    int
+	Height                   int
+	ViewMode                 ViewMode
+	Table                    table.Model
+	Rows                     []table.Row
+	SessionTable             table.Model
+	SessionRows              []table.Row
+	Sessions                 []*models.Session
+	FilteredSessions         []*models.Session
+	HarnessFilter            string
+	ExpandedInspector        bool
+	TotalInputTokens         int64
+	TotalOutputTokens        int64
+	TotalCacheReadTokens     int64
 	TotalCacheCreationTokens int64
-	TotalNetCostUSD         float64
-	TotalGrossCostUSD       float64
-	TotalTurns              int
-	TotalSessions           int
-	RecentSamples           []TokenSample
-	HubURL                  string
-	HubStatus               string
-	HubLatency              time.Duration
-	ActiveRoots             int
-	Paused                  bool
-	StartTime               time.Time
-	StatusMessage           string
-	ErrorMessage            string
+	TotalNetCostUSD          float64
+	TotalGrossCostUSD        float64
+	TotalTurns               int
+	TotalSessions            int
+	RecentSamples            []TokenSample
+	HubURL                   string
+	HubStatus                string
+	HubLatency               time.Duration
+	ActiveRoots              int
+	Paused                   bool
+	StartTime                time.Time
+	StatusMessage            string
+	ErrorMessage             string
 }
 
 // NewModel constructs an initialized Bubble Tea Model.
@@ -95,16 +112,62 @@ func NewModel(hubURL string, activeRoots int) Model {
 		Bold(false)
 	t.SetStyles(s)
 
-	return Model{
-		Table:         t,
-		Rows:          make([]table.Row, 0),
-		RecentSamples: make([]TokenSample, 0),
-		HubURL:        hubURL,
-		HubStatus:     "CHECKING...",
-		ActiveRoots:   activeRoots,
-		StartTime:     time.Now(),
-		StatusMessage: "Listening for agent transcript updates...",
+	sessionCols := []table.Column{
+		{Title: "TIME", Width: 10},
+		{Title: "HARNESS", Width: 14},
+		{Title: "SESSION ID", Width: 18},
+		{Title: "MODEL", Width: 22},
+		{Title: "TURNS", Width: 8},
+		{Title: "IN / OUT / CACHE", Width: 24},
+		{Title: "COST (USD)", Width: 12},
 	}
+
+	st := table.New(
+		table.WithColumns(sessionCols),
+		table.WithFocused(true),
+		table.WithHeight(8),
+	)
+	st.SetStyles(s)
+
+	return Model{
+		ViewMode:          ViewModeLive,
+		Table:             t,
+		Rows:              make([]table.Row, 0),
+		SessionTable:      st,
+		SessionRows:       make([]table.Row, 0),
+		Sessions:          make([]*models.Session, 0),
+		FilteredSessions:  make([]*models.Session, 0),
+		RecentSamples:     make([]TokenSample, 0),
+		HubURL:            hubURL,
+		HubStatus:         "CHECKING...",
+		ActiveRoots:       activeRoots,
+		StartTime:         time.Now(),
+		StatusMessage:     "Listening for agent transcript updates... ([Tab]/[s] for Sessions)",
+		ExpandedInspector: false,
+	}
+}
+
+// NewSessionsModel constructs a Bubble Tea Model initialized in Sessions mode with preloaded sessions.
+func NewSessionsModel(hubURL string, activeRoots int, initialSessions []*models.Session, harnessFilter string) Model {
+	m := NewModel(hubURL, activeRoots)
+	m.ViewMode = ViewModeSessions
+	m.HarnessFilter = harnessFilter
+	m.Sessions = initialSessions
+
+	for _, s := range initialSessions {
+		m.TotalSessions++
+		m.TotalGrossCostUSD += s.GrossCostUSD
+		m.TotalNetCostUSD += s.NetCostUSD
+		m.TotalInputTokens += s.InputTokens
+		m.TotalOutputTokens += s.OutputTokens
+		m.TotalCacheReadTokens += s.CacheReadTokens
+		m.TotalCacheCreationTokens += s.CacheCreationTokens
+		m.TotalTurns += len(s.Turns)
+	}
+
+	m.applyHarnessFilter()
+	m.StatusMessage = fmt.Sprintf("Loaded %d sessions. Use [↑/↓] to select, [Enter] to inspect, [h] to filter harness.", len(m.FilteredSessions))
+	return m
 }
 
 // Init starts the 1-second background tick timer.
@@ -126,9 +189,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.Type == tea.KeyCtrlC, msg.String() == "ctrl+c", msg.String() == "q":
 			return m, tea.Quit
+
+		case msg.String() == "tab", msg.String() == "s":
+			if m.ViewMode == ViewModeLive {
+				m.ViewMode = ViewModeSessions
+				m.applyHarnessFilter()
+				m.StatusMessage = "Switched to Recent Sessions view (press [Tab]/[s] for Live Turns, [h] to filter harness, [Enter] to toggle inspector)"
+			} else {
+				m.ViewMode = ViewModeLive
+				m.StatusMessage = "Switched to Live Turns feed (press [Tab]/[s] for Sessions)"
+			}
+			m.recalculateLayout()
+			return m, nil
+
+		case msg.String() == "h" && m.ViewMode == ViewModeSessions:
+			m.cycleHarnessFilter()
+			return m, nil
+
+		case (msg.String() == "enter" || msg.Type == tea.KeyEnter) && m.ViewMode == ViewModeSessions:
+			m.ExpandedInspector = !m.ExpandedInspector
+			if m.ExpandedInspector {
+				m.StatusMessage = "Expanded session inspector pane"
+			} else {
+				m.StatusMessage = "Collapsed session inspector pane"
+			}
+			m.recalculateLayout()
+			return m, nil
+
 		case msg.String() == "c":
 			m.Rows = nil
 			m.Table.SetRows(m.Rows)
+			m.SessionRows = nil
+			m.Sessions = nil
+			m.FilteredSessions = nil
+			m.SessionTable.SetRows(m.SessionRows)
 			m.TotalInputTokens = 0
 			m.TotalOutputTokens = 0
 			m.TotalCacheReadTokens = 0
@@ -138,7 +232,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TotalTurns = 0
 			m.TotalSessions = 0
 			m.RecentSamples = nil
-			m.StatusMessage = "Cleared telemetry metrics and turn feed"
+			m.StatusMessage = "Cleared telemetry metrics and session feed"
+
 		case msg.String() == "p":
 			m.Paused = !m.Paused
 			if m.Paused {
@@ -200,12 +295,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				costCol,
 			}
 
-			// Prepend newest to top or append to bottom (keep last 200 rows)
+			// Prepend newest to top (keep last 200 rows)
 			m.Rows = append([]table.Row{row}, m.Rows...)
 			if len(m.Rows) > 200 {
 				m.Rows = m.Rows[:200]
 			}
 			m.Table.SetRows(m.Rows)
+
+			// Update session list if session is attached
+			if msg.Session != nil {
+				m.upsertSession(msg.Session, msg.Turn)
+			}
 		}
 
 	case SessionIngestedMsg:
@@ -214,6 +314,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TotalGrossCostUSD += msg.Session.GrossCostUSD
 			m.StatusMessage = fmt.Sprintf("Ingested %s session (%s): %d turns",
 				msg.Session.AgentName, msg.Session.ProjectName, len(msg.Session.Turns))
+			m.upsertSession(msg.Session, nil)
 		}
 
 	case HubHealthMsg:
@@ -246,8 +347,175 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickCmd()
 	}
 
-	m.Table, cmd = m.Table.Update(msg)
+	if m.ViewMode == ViewModeSessions {
+		m.SessionTable, cmd = m.SessionTable.Update(msg)
+	} else {
+		m.Table, cmd = m.Table.Update(msg)
+	}
 	return m, cmd
+}
+
+// upsertSession updates or appends a session to m.Sessions and refreshes filtered view.
+func (m *Model) upsertSession(s *models.Session, turn *models.MessageTurn) {
+	if s == nil {
+		return
+	}
+
+	foundIdx := -1
+	for i, existing := range m.Sessions {
+		if existing.ID == s.ID || (existing.SessionID != "" && existing.SessionID == s.SessionID) {
+			foundIdx = i
+			break
+		}
+	}
+
+	if foundIdx >= 0 {
+		existing := m.Sessions[foundIdx]
+		existing.InputTokens = s.InputTokens
+		existing.OutputTokens = s.OutputTokens
+		existing.CacheReadTokens = s.CacheReadTokens
+		existing.CacheCreationTokens = s.CacheCreationTokens
+		existing.GrossCostUSD = s.GrossCostUSD
+		existing.NetCostUSD = s.NetCostUSD
+		existing.ModelRaw = s.ModelRaw
+		existing.ModelResolved = s.ModelResolved
+		if len(s.Turns) > len(existing.Turns) {
+			existing.Turns = s.Turns
+		} else if turn != nil {
+			alreadyPresent := false
+			for _, t := range existing.Turns {
+				if t.TurnIndex == turn.TurnIndex {
+					alreadyPresent = true
+					break
+				}
+			}
+			if !alreadyPresent {
+				existing.Turns = append(existing.Turns, *turn)
+			}
+		}
+	} else {
+		copySess := *s
+		if turn != nil && len(copySess.Turns) == 0 {
+			copySess.Turns = []models.MessageTurn{*turn}
+		}
+		m.Sessions = append([]*models.Session{&copySess}, m.Sessions...)
+		if len(m.Sessions) > 200 {
+			m.Sessions = m.Sessions[:200]
+		}
+	}
+
+	m.applyHarnessFilter()
+}
+
+// applyHarnessFilter filters m.Sessions into m.FilteredSessions and builds table rows.
+func (m *Model) applyHarnessFilter() {
+	var filtered []*models.Session
+	for _, s := range m.Sessions {
+		if m.HarnessFilter == "" || strings.EqualFold(s.AgentName, m.HarnessFilter) || strings.Contains(strings.ToLower(s.AgentName), strings.ToLower(m.HarnessFilter)) {
+			filtered = append(filtered, s)
+		}
+	}
+	m.FilteredSessions = filtered
+	m.rebuildSessionRows()
+}
+
+// cycleHarnessFilter cycles through available harness names from discovered sessions.
+func (m *Model) cycleHarnessFilter() {
+	distinctAgentsMap := make(map[string]bool)
+	for _, s := range m.Sessions {
+		if s.AgentName != "" {
+			distinctAgentsMap[strings.ToLower(s.AgentName)] = true
+		}
+	}
+
+	var agents []string
+	for a := range distinctAgentsMap {
+		agents = append(agents, a)
+	}
+	sort.Strings(agents)
+
+	options := append([]string{""}, agents...)
+	currentIdx := 0
+	for i, opt := range options {
+		if strings.EqualFold(opt, m.HarnessFilter) {
+			currentIdx = i
+			break
+		}
+	}
+
+	nextIdx := (currentIdx + 1) % len(options)
+	m.HarnessFilter = options[nextIdx]
+	m.applyHarnessFilter()
+
+	if m.HarnessFilter == "" {
+		m.StatusMessage = "Harness filter: ALL agents"
+	} else {
+		m.StatusMessage = fmt.Sprintf("Harness filter: %s", m.HarnessFilter)
+	}
+}
+
+// rebuildSessionRows converts m.FilteredSessions to Bubble Tea table rows.
+func (m *Model) rebuildSessionRows() {
+	rows := make([]table.Row, 0, len(m.FilteredSessions))
+	for _, s := range m.FilteredSessions {
+		ts := s.StartTime
+		if ts.IsZero() {
+			ts = s.CreatedAt
+		}
+		timeStr := ts.Format("15:04:05")
+		if timeStr == "00:00:00" {
+			timeStr = "recently"
+		}
+
+		sessShortID := s.SessionID
+		if sessShortID == "" {
+			sessShortID = s.ID
+		}
+		if len(sessShortID) > 16 {
+			sessShortID = sessShortID[:16] + "..."
+		}
+
+		modelStr := s.ModelRaw
+		if modelStr == "" {
+			modelStr = s.ModelResolved
+		}
+		if modelStr == "" {
+			modelStr = "default"
+		}
+
+		tokensCol := fmt.Sprintf("%s / %s / %s",
+			humanize.Comma(s.InputTokens),
+			humanize.Comma(s.OutputTokens),
+			humanize.Comma(s.CacheReadTokens),
+		)
+
+		costCol := fmt.Sprintf("$%.4f", s.NetCostUSD)
+		turnsCol := fmt.Sprintf("%d", len(s.Turns))
+
+		rows = append(rows, table.Row{
+			timeStr,
+			s.AgentName,
+			sessShortID,
+			modelStr,
+			turnsCol,
+			tokensCol,
+			costCol,
+		})
+	}
+	m.SessionRows = rows
+	m.SessionTable.SetRows(m.SessionRows)
+}
+
+// SelectedSession returns the currently highlighted session in the sessions table, or nil.
+func (m *Model) SelectedSession() *models.Session {
+	if len(m.FilteredSessions) == 0 {
+		return nil
+	}
+	idx := m.SessionTable.Cursor()
+	if idx < 0 || idx >= len(m.FilteredSessions) {
+		return m.FilteredSessions[0]
+	}
+	return m.FilteredSessions[idx]
 }
 
 // CalculateThroughput returns estimated tokens per second over the recent 10s window.
@@ -276,18 +544,17 @@ func (m *Model) recalculateLayout() {
 		return
 	}
 
-	// Height available for table: total height minus header (4), KPI cards (6), footer (3)
-	tableHeight := m.Height - 14
-	if tableHeight < 5 {
-		tableHeight = 5
-	}
-	m.Table.SetHeight(tableHeight)
-
-	// Responsive column widths
 	availableWidth := m.Width - 6
 	if availableWidth < 60 {
 		availableWidth = 60
 	}
+
+	// Live Table Layout
+	liveTableHeight := m.Height - 14
+	if liveTableHeight < 5 {
+		liveTableHeight = 5
+	}
+	m.Table.SetHeight(liveTableHeight)
 
 	colTime := 10
 	colAgent := 14
@@ -314,6 +581,43 @@ func (m *Model) recalculateLayout() {
 		{Title: "COST (USD)", Width: colCost},
 	})
 	m.Table.SetWidth(availableWidth)
+
+	// Sessions Table Layout (split with inspector pane)
+	sessionTableHeight := 7
+	if m.Height > 35 && !m.ExpandedInspector {
+		sessionTableHeight = 10
+	} else if m.Height <= 24 {
+		sessionTableHeight = 5
+	}
+	m.SessionTable.SetHeight(sessionTableHeight)
+
+	colSessTime := 10
+	colSessHarness := 14
+	colSessID := 18
+	colSessTurns := 8
+	colSessCost := 12
+
+	remSess := availableWidth - (colSessTime + colSessHarness + colSessID + colSessTurns + colSessCost)
+	colSessModel := remSess * 45 / 100
+	colSessTokens := remSess * 55 / 100
+
+	if colSessModel < 15 {
+		colSessModel = 15
+	}
+	if colSessTokens < 20 {
+		colSessTokens = 20
+	}
+
+	m.SessionTable.SetColumns([]table.Column{
+		{Title: "TIME", Width: colSessTime},
+		{Title: "HARNESS", Width: colSessHarness},
+		{Title: "SESSION ID", Width: colSessID},
+		{Title: "MODEL", Width: colSessModel},
+		{Title: "TURNS", Width: colSessTurns},
+		{Title: "IN / OUT / CACHE", Width: colSessTokens},
+		{Title: "COST (USD)", Width: colSessCost},
+	})
+	m.SessionTable.SetWidth(availableWidth)
 }
 
 func tickCmd() tea.Cmd {

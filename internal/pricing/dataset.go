@@ -68,6 +68,9 @@ var curatedModels = map[string]models.ModelRate{
 	"gpt-4o-mini":       {ModelPattern: "gpt-4o-mini", InputCostPerM: 0.15, OutputCostPerM: 0.60, CacheReadCostPerM: 0.075, Source: "curated"},
 
 	// Google Gemini
+	"gemini-3.7-pro":    {ModelPattern: "gemini-3.7-pro", InputCostPerM: 2.00, OutputCostPerM: 12.00, CacheReadCostPerM: 0.20, Source: "curated"},
+	"gemini-3.7-flash":  {ModelPattern: "gemini-3.7-flash", InputCostPerM: 0.25, OutputCostPerM: 1.50, CacheReadCostPerM: 0.025, Source: "curated"},
+	"gemini-3.6-flash":  {ModelPattern: "gemini-3.6-flash", InputCostPerM: 0.25, OutputCostPerM: 1.50, CacheReadCostPerM: 0.025, Source: "curated"},
 	"gemini-3.1-pro":    {ModelPattern: "gemini-3.1-pro", InputCostPerM: 2.00, OutputCostPerM: 12.00, CacheReadCostPerM: 0.20, Source: "curated"},
 	"gemini-3.1-flash":  {ModelPattern: "gemini-3.1-flash", InputCostPerM: 0.25, OutputCostPerM: 1.50, CacheReadCostPerM: 0.025, Source: "curated"},
 	"gemini-3-pro":      {ModelPattern: "gemini-3-pro", InputCostPerM: 2.00, OutputCostPerM: 12.00, CacheReadCostPerM: 0.20, Source: "curated"},

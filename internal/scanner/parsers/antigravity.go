@@ -3,12 +3,70 @@ package parsers
 import (
 	"encoding/json"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/robin-paul/tokentelemetry-go/internal/models"
 )
+
+var reAntigravityUserSettings = regexp.MustCompile(`(?i)<USER_SETTINGS_CHANGE>[\s\S]*?Model Selection[^\n\r]*?(?:from\s+\S+\s+to|to)\s+([^\n\r<]+?)(?:\.\s|\.\n|\.\r|\.<\/|\n|\r|<\/|$)`)
+
+func extractAntigravityModel(content string) string {
+	if matches := reAntigravityUserSettings.FindStringSubmatch(content); len(matches) > 1 {
+		raw := strings.TrimSpace(matches[1])
+		return normalizeAntigravityModelName(raw)
+	}
+	return ""
+}
+
+func normalizeAntigravityModelName(raw string) string {
+	if idx := strings.Index(raw, "("); idx != -1 {
+		raw = raw[:idx]
+	}
+	raw = strings.TrimSpace(raw)
+	lower := strings.ToLower(raw)
+
+	switch {
+	case strings.Contains(lower, "3.7") && strings.Contains(lower, "flash"):
+		return "gemini-3.7-flash"
+	case strings.Contains(lower, "3.6") && strings.Contains(lower, "flash"):
+		return "gemini-3.6-flash"
+	case strings.Contains(lower, "3.7") && strings.Contains(lower, "pro"):
+		return "gemini-3.7-pro"
+	case strings.Contains(lower, "3.1") && strings.Contains(lower, "flash"):
+		return "gemini-3.1-flash"
+	case strings.Contains(lower, "3.1") && strings.Contains(lower, "pro"):
+		return "gemini-3.1-pro"
+	case strings.Contains(lower, "3") && strings.Contains(lower, "flash"):
+		return "gemini-3-flash"
+	case strings.Contains(lower, "3") && strings.Contains(lower, "pro"):
+		return "gemini-3-pro"
+	case strings.Contains(lower, "2.5") && strings.Contains(lower, "pro"):
+		return "gemini-2.5-pro"
+	case strings.Contains(lower, "2.5") && strings.Contains(lower, "flash"):
+		return "gemini-2.5-flash"
+	case strings.Contains(lower, "2.0") && strings.Contains(lower, "flash"):
+		return "gemini-2.0-flash"
+	case strings.Contains(lower, "claude") && strings.Contains(lower, "3.7") && strings.Contains(lower, "sonnet"):
+		return "claude-3-7-sonnet"
+	case strings.Contains(lower, "claude") && strings.Contains(lower, "3.5") && strings.Contains(lower, "sonnet"):
+		return "claude-3-5-sonnet"
+	case strings.Contains(lower, "claude") && strings.Contains(lower, "3.5") && strings.Contains(lower, "haiku"):
+		return "claude-3-5-haiku"
+	case strings.Contains(lower, "gpt-4o-mini"):
+		return "gpt-4o-mini"
+	case strings.Contains(lower, "gpt-4o"):
+		return "gpt-4o"
+	default:
+		cleaned := strings.ReplaceAll(lower, " ", "-")
+		if cleaned != "" {
+			return cleaned
+		}
+		return "gemini-3.7-flash"
+	}
+}
 
 type AntigravityParser struct{}
 
@@ -22,8 +80,23 @@ func (p *AntigravityParser) AgentName() string {
 
 func (p *AntigravityParser) Detect(filePath string) bool {
 	lower := strings.ToLower(filePath)
-	return (strings.Contains(lower, ".gemini/antigravity") || strings.Contains(lower, "antigravity-cli") || strings.Contains(lower, "antigravity-ide")) &&
-		(strings.HasSuffix(lower, ".jsonl") || strings.HasSuffix(lower, ".json"))
+	if !strings.Contains(lower, ".gemini/antigravity") && !strings.Contains(lower, "antigravity-cli") && !strings.Contains(lower, "antigravity-ide") {
+		return false
+	}
+	// Avoid duplicate or internal files: chunks, messages, tasks, caches, metadata, config
+	if strings.Contains(lower, "transcript_full.jsonl") ||
+		strings.Contains(lower, "/chunks/") ||
+		strings.Contains(lower, "\\chunks\\") ||
+		strings.Contains(lower, "/messages/") ||
+		strings.Contains(lower, "\\messages\\") ||
+		strings.Contains(lower, "/tasks/") ||
+		strings.Contains(lower, "\\tasks\\") ||
+		strings.HasSuffix(lower, "tokens_cache.json") ||
+		strings.HasSuffix(lower, ".metadata.json") ||
+		strings.HasSuffix(lower, "mcp_config.json") {
+		return false
+	}
+	return strings.HasSuffix(lower, "transcript.jsonl") || strings.HasSuffix(lower, ".jsonl")
 }
 
 type antigravityUsage struct {
@@ -55,7 +128,7 @@ type antigravityStep struct {
 func (p *AntigravityParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64, error) {
 	session := &ParsedSession{
 		AgentName:       "antigravity",
-		Model:           "gemini-2.5-pro",
+		Model:           "gemini-3.7-flash",
 		Turns:           make([]Turn, 0),
 		SubagentRuns:    make([]models.SubagentRun, 0),
 		Status:          "completed",
@@ -69,6 +142,13 @@ func (p *AntigravityParser) Parse(r io.Reader, startOffset int64) (*ParsedSessio
 		var step antigravityStep
 		if err := json.Unmarshal(line, &step); err != nil {
 			return nil
+		}
+
+		if detected := extractAntigravityModel(step.Content); detected != "" {
+			session.Model = detected
+			for i := range session.Turns {
+				session.Turns[i].Model = detected
+			}
 		}
 
 		var ts time.Time

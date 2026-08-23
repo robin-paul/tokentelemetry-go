@@ -156,3 +156,45 @@ func Run(ctx context.Context, cfg *collector.Config, pipeline *collector.Pipelin
 
 	return err
 }
+
+// RunSessionsBrowser starts the interactive Bubble Tea terminal user interface pre-loaded with discovered sessions.
+func RunSessionsBrowser(ctx context.Context, cfg *collector.Config, pipeline *collector.Pipeline, initialSessions []*models.Session, harnessFilter string) error {
+	activeRoots := 0
+	if cfg != nil {
+		activeRoots = len(cfg.ScanRoots)
+	}
+
+	hubURL := "http://localhost:8000"
+	if cfg != nil && cfg.HubURL != "" {
+		hubURL = cfg.HubURL
+	}
+
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
+	model := NewSessionsModel(hubURL, activeRoots, initialSessions, harnessFilter)
+	program := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithContext(runCtx),
+	)
+
+	// Launch background Hub health polling loop
+	if pipeline != nil {
+		go func() {
+			if health, err := pipeline.PingHub(runCtx); err == nil && health != nil {
+				program.Send(HubHealthMsg{
+					Status:  health.Status,
+					Latency: health.Latency,
+					Error:   health.Error,
+				})
+			}
+		}()
+	}
+
+	// Run Bubble Tea program (blocks until quit or context cancellation)
+	_, err := program.Run()
+	return err
+}
+
