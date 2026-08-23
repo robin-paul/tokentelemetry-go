@@ -2,7 +2,7 @@ VERSION ?= 2.0.0
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
 
-.PHONY: all build-frontend build-server build-cli build-all build test test-ui test-ui-smoke test-ui-headed docker-build clean
+.PHONY: all build-frontend build-server build-cli build-all build test test-ui test-ui-smoke test-ui-headed docker-build kill stop clean
 
 all: build-all
 
@@ -41,5 +41,13 @@ test-ui-headed: build-server
 docker-build:
 	docker build -t tokentelemetry-hub:$(VERSION) -f deploy/Dockerfile .
 
+kill:
+	@echo "==> Terminating any running TokenTelemetry processes..."
+	@-killall tt-server tokentelemetry tt 2>/dev/null || true
+	@-pkill -f "tt-server|tokentelemetry|bin/tt" 2>/dev/null || true
+
+stop: kill
+
 clean:
 	rm -rf bin/ internal/web/dist frontend/dist
+
