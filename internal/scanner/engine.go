@@ -207,9 +207,11 @@ func (e *Engine) commitBatch(ctx context.Context, sessions []*models.Session) {
 	var committed []*models.Session
 
 	for _, s := range sessions {
-		// Save session, message turns, and subagent runs
-		if err := e.db.SaveSessionWithTurnsAndSubagents(ctx, s); err != nil {
-			continue
+		// Save session, message turns, and subagent runs if DB is present
+		if e.db != nil {
+			if err := e.db.SaveSessionWithTurnsAndSubagents(ctx, s); err != nil {
+				continue
+			}
 		}
 
 		committed = append(committed, s)
@@ -224,8 +226,10 @@ func (e *Engine) commitBatch(ctx context.Context, sessions []*models.Session) {
 	}
 
 	// Rollup affected daily summaries BEFORE broadcasting events
-	for date := range affectedDates {
-		_ = e.db.RollupDailySummariesForDate(ctx, date)
+	if e.db != nil {
+		for date := range affectedDates {
+			_ = e.db.RollupDailySummariesForDate(ctx, date)
+		}
 	}
 
 	// Broadcast events after database state and daily summaries are committed
@@ -329,7 +333,10 @@ func (e *Engine) ScanFile(ctx context.Context, filePath string) (*models.Session
 	}
 
 	// Run Offline Pricing Engine
-	overrides, _ := e.db.GetPricingOverrides(ctx)
+	var overrides []models.PricingOverride
+	if e.db != nil {
+		overrides, _ = e.db.GetPricingOverrides(ctx)
+	}
 	e.pricingEngine.CostSession(ctx, sess, parsed.Endpoint, parsed.Provider, overrides)
 
 	// Update Checkpoint

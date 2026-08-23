@@ -44,6 +44,9 @@ func GetFileState(filePath string) (*FileState, error) {
 
 // ShouldScan determines if the file needs to be scanned or rescanned.
 func (cm *CheckpointManager) ShouldScan(ctx context.Context, state *FileState) (bool, *store.ScannerCheckpoint, error) {
+	if cm == nil || cm.db == nil {
+		return true, nil, nil
+	}
 	cp, err := cm.db.GetCheckpoint(ctx, state.FilePath)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -62,6 +65,9 @@ func (cm *CheckpointManager) ShouldScan(ctx context.Context, state *FileState) (
 
 // UpdateCheckpoint updates the recorded checkpoint in SQLite.
 func (cm *CheckpointManager) UpdateCheckpoint(ctx context.Context, filePath string, state *FileState, byteOffset int64, lineNum int, fileHash string) error {
+	if cm == nil || cm.db == nil {
+		return nil
+	}
 	cp := &store.ScannerCheckpoint{
 		FilePath:     filePath,
 		LastModified: state.LastModified,

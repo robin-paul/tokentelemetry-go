@@ -45,6 +45,7 @@ type Session struct {
 	AgentName           string        `json:"agent_name"`
 	ProjectName         string        `json:"project_name"`
 	FilePath            string        `json:"file_path"`
+	MachineID           string        `json:"machine_id,omitempty"`
 	CreatedAt           time.Time     `json:"created_at"`
 	UpdatedAt           time.Time     `json:"updated_at"`
 	StartTime           time.Time     `json:"start_time"`

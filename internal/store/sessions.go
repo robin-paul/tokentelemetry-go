@@ -20,14 +20,14 @@ var (
 func (d *DB) UpsertSession(ctx context.Context, s *models.Session) error {
 	query := `
 	INSERT INTO sessions (
-		id, session_id, agent_name, project_name, file_path,
+		id, session_id, agent_name, project_name, file_path, machine_id,
 		created_at, updated_at, start_time, end_time, duration_seconds,
 		model_raw, model_resolved, input_tokens, output_tokens,
 		cache_read_tokens, cache_creation_tokens, gross_cost_usd, net_cost_usd,
 		electricity_cost_usd, hardware_profile, status, git_branch,
 		is_subagent, parent_session_id, subagent_type
 	) VALUES (
-		?, ?, ?, ?, ?,
+		?, ?, ?, ?, ?, ?,
 		?, ?, ?, ?, ?,
 		?, ?, ?, ?,
 		?, ?, ?, ?,
@@ -39,6 +39,7 @@ func (d *DB) UpsertSession(ctx context.Context, s *models.Session) error {
 		agent_name = excluded.agent_name,
 		project_name = excluded.project_name,
 		file_path = excluded.file_path,
+		machine_id = excluded.machine_id,
 		updated_at = excluded.updated_at,
 		start_time = excluded.start_time,
 		end_time = excluded.end_time,
@@ -64,10 +65,13 @@ func (d *DB) UpsertSession(ctx context.Context, s *models.Session) error {
 		s.CreatedAt = now
 	}
 	s.UpdatedAt = now
+	if s.MachineID == "" {
+		s.MachineID = "local"
+	}
 
 	return d.WithTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, query,
-			s.ID, s.SessionID, s.AgentName, s.ProjectName, s.FilePath,
+			s.ID, s.SessionID, s.AgentName, s.ProjectName, s.FilePath, s.MachineID,
 			s.CreatedAt, s.UpdatedAt, s.StartTime, s.EndTime, s.DurationSeconds,
 			s.ModelRaw, s.ModelResolved, s.InputTokens, s.OutputTokens,
 			s.CacheReadTokens, s.CacheCreationTokens, s.GrossCostUSD, s.NetCostUSD,
@@ -84,14 +88,14 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 		// 1. Upsert session
 		upsertSessionQuery := `
 		INSERT INTO sessions (
-			id, session_id, agent_name, project_name, file_path,
+			id, session_id, agent_name, project_name, file_path, machine_id,
 			created_at, updated_at, start_time, end_time, duration_seconds,
 			model_raw, model_resolved, input_tokens, output_tokens,
 			cache_read_tokens, cache_creation_tokens, gross_cost_usd, net_cost_usd,
 			electricity_cost_usd, hardware_profile, status, git_branch,
 			is_subagent, parent_session_id, subagent_type
 		) VALUES (
-			?, ?, ?, ?, ?,
+			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?,
 			?, ?, ?, ?,
 			?, ?, ?, ?,
@@ -103,6 +107,7 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 			agent_name = excluded.agent_name,
 			project_name = excluded.project_name,
 			file_path = excluded.file_path,
+			machine_id = excluded.machine_id,
 			updated_at = excluded.updated_at,
 			start_time = excluded.start_time,
 			end_time = excluded.end_time,
@@ -128,9 +133,12 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 			s.CreatedAt = now
 		}
 		s.UpdatedAt = now
+		if s.MachineID == "" {
+			s.MachineID = "local"
+		}
 
 		_, err := tx.ExecContext(ctx, upsertSessionQuery,
-			s.ID, s.SessionID, s.AgentName, s.ProjectName, s.FilePath,
+			s.ID, s.SessionID, s.AgentName, s.ProjectName, s.FilePath, s.MachineID,
 			s.CreatedAt, s.UpdatedAt, s.StartTime, s.EndTime, s.DurationSeconds,
 			s.ModelRaw, s.ModelResolved, s.InputTokens, s.OutputTokens,
 			s.CacheReadTokens, s.CacheCreationTokens, s.GrossCostUSD, s.NetCostUSD,
@@ -209,11 +217,49 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 	})
 }
 
+// GetExistingSessionIDs checks a slice of sessions and returns a map of session IDs that already exist in the database.
+func (d *DB) GetExistingSessionIDs(ctx context.Context, sessions []models.Session) (map[string]bool, error) {
+	if len(sessions) == 0 {
+		return map[string]bool{}, nil
+	}
+	existing := make(map[string]bool)
+	for i := 0; i < len(sessions); i += 50 {
+		end := i + 50
+		if end > len(sessions) {
+			end = len(sessions)
+		}
+		chunk := sessions[i:end]
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, len(chunk))
+		for j, s := range chunk {
+			placeholders[j] = "?"
+			id := s.ID
+			if id == "" {
+				id = s.FilePath
+			}
+			args[j] = id
+		}
+		query := fmt.Sprintf("SELECT id FROM sessions WHERE id IN (%s);", strings.Join(placeholders, ","))
+		rows, err := d.readerDB.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check existing session IDs: %w", err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err == nil {
+				existing[id] = true
+			}
+		}
+		rows.Close()
+	}
+	return existing, nil
+}
+
 // GetSession retrieves a single session by primary ID.
 func (d *DB) GetSession(ctx context.Context, id string) (*models.Session, error) {
 	query := `
 	SELECT
-		id, session_id, agent_name, project_name, file_path,
+		id, session_id, agent_name, project_name, file_path, machine_id,
 		created_at, updated_at, start_time, end_time, duration_seconds,
 		model_raw, model_resolved, input_tokens, output_tokens,
 		cache_read_tokens, cache_creation_tokens, gross_cost_usd, net_cost_usd,
@@ -228,7 +274,7 @@ func (d *DB) GetSession(ctx context.Context, id string) (*models.Session, error)
 	var s models.Session
 	var isSubagentInt int
 	err := row.Scan(
-		&s.ID, &s.SessionID, &s.AgentName, &s.ProjectName, &s.FilePath,
+		&s.ID, &s.SessionID, &s.AgentName, &s.ProjectName, &s.FilePath, &s.MachineID,
 		&s.CreatedAt, &s.UpdatedAt, &s.StartTime, &s.EndTime, &s.DurationSeconds,
 		&s.ModelRaw, &s.ModelResolved, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreationTokens, &s.GrossCostUSD, &s.NetCostUSD,
@@ -349,6 +395,10 @@ func (d *DB) ListSessions(ctx context.Context, params models.FilterParams) ([]mo
 		whereClauses = append(whereClauses, "(model_raw = ? OR model_resolved = ?)")
 		args = append(args, params.Model, params.Model)
 	}
+	if params.MachineID != "" {
+		whereClauses = append(whereClauses, "machine_id = ?")
+		args = append(args, params.MachineID)
+	}
 	if !params.StartDate.IsZero() {
 		whereClauses = append(whereClauses, "start_time >= ?")
 		args = append(args, params.StartDate)
@@ -388,7 +438,7 @@ func (d *DB) ListSessions(ctx context.Context, params models.FilterParams) ([]mo
 
 	query := fmt.Sprintf(`
 	SELECT
-		id, session_id, agent_name, project_name, file_path,
+		id, session_id, agent_name, project_name, file_path, machine_id,
 		created_at, updated_at, start_time, end_time, duration_seconds,
 		model_raw, model_resolved, input_tokens, output_tokens,
 		cache_read_tokens, cache_creation_tokens, gross_cost_usd, net_cost_usd,
@@ -412,7 +462,7 @@ func (d *DB) ListSessions(ctx context.Context, params models.FilterParams) ([]mo
 		var s models.Session
 		var isSubagentInt int
 		if err := rows.Scan(
-			&s.ID, &s.SessionID, &s.AgentName, &s.ProjectName, &s.FilePath,
+			&s.ID, &s.SessionID, &s.AgentName, &s.ProjectName, &s.FilePath, &s.MachineID,
 			&s.CreatedAt, &s.UpdatedAt, &s.StartTime, &s.EndTime, &s.DurationSeconds,
 			&s.ModelRaw, &s.ModelResolved, &s.InputTokens, &s.OutputTokens,
 			&s.CacheReadTokens, &s.CacheCreationTokens, &s.GrossCostUSD, &s.NetCostUSD,

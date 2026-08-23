@@ -66,12 +66,17 @@ func (s *Server) Router() http.Handler {
 		router.Put("/pricing/override", s.UpsertPricingOverride)
 		router.Delete("/pricing/override/{pattern}", s.DeletePricingOverride)
 
+		// Ingestion
+		router.Post("/ingest", s.IngestBatch)
+		router.Post("/v1/ingest", s.IngestBatch)
+
 		// Hermes
 		router.Get("/hermes/kanban", s.GetHermesKanban)
 	}
 
-	// Mount /api subtree
+	// Mount /api and /api/v1 subtrees
 	r.Route("/api", registerAPIRoutes)
+	r.Route("/api/v1", registerAPIRoutes)
 
 	// Root-level aliases for headless API testing or specific sub-resources
 	if s.cfg.WebHandler == nil {

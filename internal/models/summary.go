@@ -53,6 +53,7 @@ type FilterParams struct {
 	Agent     string    `json:"agent"`
 	Project   string    `json:"project"`
 	Model     string    `json:"model"`
+	MachineID string    `json:"machine_id"`
 	StartDate time.Time `json:"start_date"`
 	EndDate   time.Time `json:"end_date"`
 	Search    string    `json:"search"`

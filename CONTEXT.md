@@ -43,3 +43,17 @@ _Avoid_: Custom rate, custom price, manual fee
 **Power Estimation**:
 Calculated electrical power consumption and electricity cost based on hardware profile TDP and local utility rates.
 _Avoid_: Hardware cost, energy bill, machine usage
+
+### Architecture & Distributed Topology
+
+**Collector** (`tt`):
+The local client command-line utility running on a developer's workstation that watches agent transcript directories, parses session turns, renders interactive terminal UI/status, and transmits ingestion batches to the Hub.
+_Avoid_: Agent, Daemon, Scraper, Sniffer, Local Server
+
+**Hub** (`tt-server`):
+The centralized telemetry backend server deployed to Kubernetes or a host server, responsible for REST/SSE APIs, storage persistence, analytics aggregation, and hosting the embedded Astro Web UI.
+_Avoid_: Master, Central Engine, Aggregator, Backend
+
+**Ingestion Batch**:
+A structured payload of newly discovered or incrementally updated sessions and message turns transmitted from Collector to Hub over HTTP.
+_Avoid_: Sync packet, telemetry push, log payload, event dump
