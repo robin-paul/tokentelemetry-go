@@ -153,6 +153,18 @@ func TestTUIModelTurnAndSessionIngestion(t *testing.T) {
 	if m.TotalTurns != 0 || len(m.Rows) != 0 {
 		t.Fatalf("expected 0 turns and 0 rows after clear")
 	}
+
+	// Test Quit with q
+	_, cmdQ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmdQ == nil {
+		t.Fatalf("expected tea.Quit cmd when pressing 'q'")
+	}
+
+	// Test Quit with Ctrl+C
+	_, cmdCtrlC := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmdCtrlC == nil {
+		t.Fatalf("expected tea.Quit cmd when pressing Ctrl+C key type")
+	}
 }
 
 func TestTUIErrorAndStatusHandling(t *testing.T) {

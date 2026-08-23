@@ -89,8 +89,16 @@ func Run(ctx context.Context, cfg *collector.Config, pipeline *collector.Pipelin
 		hubURL = cfg.HubURL
 	}
 
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+
 	model := NewModel(hubURL, activeRoots)
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithContext(runCtx),
+	)
 
 	if tuiSink != nil {
 		tuiSink.SetProgram(program)
@@ -102,7 +110,7 @@ func Run(ctx context.Context, cfg *collector.Config, pipeline *collector.Pipelin
 		defer ticker.Stop()
 
 		// Initial check
-		if health, err := pipeline.PingHub(ctx); err == nil && health != nil {
+		if health, err := pipeline.PingHub(runCtx); err == nil && health != nil {
 			program.Send(HubHealthMsg{
 				Status:  health.Status,
 				Latency: health.Latency,
@@ -112,10 +120,10 @@ func Run(ctx context.Context, cfg *collector.Config, pipeline *collector.Pipelin
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			case <-ticker.C:
-				health, err := pipeline.PingHub(ctx)
+				health, err := pipeline.PingHub(runCtx)
 				if err != nil {
 					program.Send(HubHealthMsg{
 						Status: "OFFLINE",
@@ -133,12 +141,15 @@ func Run(ctx context.Context, cfg *collector.Config, pipeline *collector.Pipelin
 	}()
 
 	// Start collector pipeline
-	if err := pipeline.Start(ctx); err != nil {
+	if err := pipeline.Start(runCtx); err != nil {
 		return err
 	}
 
-	// Run Bubble Tea program (blocks until quit)
+	// Run Bubble Tea program (blocks until quit or context cancellation)
 	_, err := program.Run()
+
+	// Cancel context to immediately stop background goroutines and health loops
+	runCancel()
 
 	// Stop collector pipeline on exit
 	_ = pipeline.Stop()

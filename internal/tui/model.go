@@ -123,10 +123,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recalculateLayout()
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
+		switch {
+		case msg.Type == tea.KeyCtrlC, msg.String() == "ctrl+c", msg.String() == "q":
 			return m, tea.Quit
-		case "c":
+		case msg.String() == "c":
 			m.Rows = nil
 			m.Table.SetRows(m.Rows)
 			m.TotalInputTokens = 0
@@ -139,7 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TotalSessions = 0
 			m.RecentSamples = nil
 			m.StatusMessage = "Cleared telemetry metrics and turn feed"
-		case "p":
+		case msg.String() == "p":
 			m.Paused = !m.Paused
 			if m.Paused {
 				m.StatusMessage = "Stream paused (events buffered)"

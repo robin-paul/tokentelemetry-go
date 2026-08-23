@@ -146,15 +146,18 @@ func (e *Engine) EnqueueFile(filePath string) {
 
 func (e *Engine) workerLoop(ctx context.Context) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case filePath, ok := <-e.taskQueue:
-			if !ok {
+			if !ok || ctx.Err() != nil {
 				return
 			}
 			sess, err := e.ScanFile(ctx, filePath)
-			if err != nil || sess == nil {
+			if err != nil || sess == nil || ctx.Err() != nil {
 				continue
 			}
 			select {
@@ -242,6 +245,9 @@ func (e *Engine) commitBatch(ctx context.Context, sessions []*models.Session) {
 
 // ScanFile inspects, parses, costs, and returns a single session file.
 func (e *Engine) ScanFile(ctx context.Context, filePath string) (*models.Session, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	state, err := GetFileState(filePath)
 	if err != nil {
 		return nil, err
