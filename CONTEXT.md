@@ -26,6 +26,18 @@ _Avoid_: History log, audit trail, raw dump
 A deterministically generated test transcript file used by test fixtures to simulate agent activity.
 _Avoid_: Mock log, dummy data, fake session
 
+**Agent Parser**:
+A format-specific extraction routine that detects and transforms an agent's native transcript structure into standard session and message turn models.
+_Avoid_: Adapter, translator, decoder, driver
+
+**Scanner Checkpoint**:
+Persisted file state tracking modification timestamp, byte offset, and content hash to enable efficient incremental scanning and avoid duplicate processing.
+_Avoid_: Bookmark, read pointer, watermark, state marker
+
+**Turn Metric Heuristic**:
+A fallback estimation ratio used to approximate token counts from character lengths when a transcript omits native token usage metrics.
+_Avoid_: Token guess, rough count, proxy token, fuzzy metric
+
 ### Pricing & Metrics
 
 **Gross Cost**:
@@ -57,3 +69,7 @@ _Avoid_: Master, Central Engine, Aggregator, Backend
 **Ingestion Batch**:
 A structured payload of newly discovered or incrementally updated sessions and message turns transmitted from Collector to Hub over HTTP.
 _Avoid_: Sync packet, telemetry push, log payload, event dump
+
+**Client Batch Buffer**:
+An in-memory queue within the collector that aggregates and debounces parsed sessions before transmitting them in an ingestion batch.
+_Avoid_: Transmission queue, local buffer, staging cache, spool
