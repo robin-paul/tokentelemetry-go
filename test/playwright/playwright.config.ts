@@ -69,7 +69,7 @@ export default defineConfig({
 
     /* Auto-start TokenTelemetry Go single binary for tests */
     webServer: {
-        command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tokentelemetry ] || make build ) && ./bin/tokentelemetry --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
+        command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tt-server ] || make build ) && ./bin/tt-server --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
         url: `${appUrl}/healthz`,
         reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
         stdout: 'pipe',
