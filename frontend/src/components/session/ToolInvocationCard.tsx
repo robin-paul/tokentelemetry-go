@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import { Wrench, Terminal, Copy, Check, ChevronDown, ChevronUp, Code } from 'lucide-react';
 import type { ToolCall, ToolResult } from '../../lib/types';
+import { HighlightText } from './TurnSearchInput';
 
 interface ToolInvocationCardProps {
   toolCall?: ToolCall;
   toolResult?: ToolResult;
   toolName?: string;
+  searchQuery?: string;
 }
 
 export const ToolInvocationCard: React.FC<ToolInvocationCardProps> = ({
   toolCall,
   toolResult,
   toolName: propName,
+  searchQuery = '',
 }) => {
   const [copied, setCopied] = useState(false);
   const [openArgs, setOpenArgs] = useState(false);
@@ -48,7 +51,7 @@ export const ToolInvocationCard: React.FC<ToolInvocationCardProps> = ({
             }
             return (
               <div key={idx} className={lineClass}>
-                {line}
+                {searchQuery ? <HighlightText text={line} query={searchQuery} /> : line}
               </div>
             );
           })}
@@ -56,7 +59,7 @@ export const ToolInvocationCard: React.FC<ToolInvocationCardProps> = ({
       );
     }
 
-    return <span>{text}</span>;
+    return searchQuery ? <HighlightText text={text} query={searchQuery} /> : <span>{text}</span>;
   };
 
   return (
@@ -67,7 +70,7 @@ export const ToolInvocationCard: React.FC<ToolInvocationCardProps> = ({
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-xs font-mono font-semibold">
               <Code className="w-3.5 h-3.5" />
-              {name}
+              {searchQuery ? <HighlightText text={name} query={searchQuery} /> : name}
             </span>
             {toolCall?.id && (
               <span className="text-[10px] font-mono text-gray-500">id: {toolCall.id}</span>

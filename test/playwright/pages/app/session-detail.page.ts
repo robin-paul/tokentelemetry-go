@@ -50,7 +50,7 @@ export class SessionDetailPage {
     }
 
     get scrubberStepLabel(): Locator {
-        return this.page.getByText(/Step \d+ of \d+/i);
+        return this.page.getByTestId('scrubber-step-indicator');
     }
 
     get turnCards(): Locator {
@@ -79,6 +79,26 @@ export class SessionDetailPage {
 
     get subagentRunsSection(): Locator {
         return this.page.getByText(/Spawned Subagents/i);
+    }
+
+    get playPauseButton(): Locator {
+        return this.page.getByRole('button', { name: /Start playback|Pause playback/i });
+    }
+
+    get prevStepButton(): Locator {
+        return this.page.getByRole('button', { name: /Previous turn/i });
+    }
+
+    get nextStepButton(): Locator {
+        return this.page.getByRole('button', { name: /Next turn/i });
+    }
+
+    get stepIndexButtons(): Locator {
+        return this.page.locator('button').filter({ hasText: /^#\d+/ });
+    }
+
+    get searchInput(): Locator {
+        return this.page.getByLabel('Search within active trace');
     }
 
     // ==================== Actions ====================

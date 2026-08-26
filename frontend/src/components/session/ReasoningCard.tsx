@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { Brain, ChevronDown, ChevronUp, Lock } from 'lucide-react';
+import { HighlightText } from './TurnSearchInput';
 
 interface ReasoningCardProps {
   thinking?: string;
   reasoningEffort?: string;
   defaultExpanded?: boolean;
+  searchQuery?: string;
 }
 
 export const ReasoningCard: React.FC<ReasoningCardProps> = ({
   thinking = '',
   reasoningEffort,
   defaultExpanded = true,
+  searchQuery = '',
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -56,6 +59,8 @@ export const ReasoningCard: React.FC<ReasoningCardProps> = ({
             <div className="text-gray-400 italic">
               Extended thinking is sealed by the provider — session log contains effort telemetry only.
             </div>
+          ) : searchQuery ? (
+            <HighlightText text={thinking} query={searchQuery} />
           ) : (
             thinking
           )}

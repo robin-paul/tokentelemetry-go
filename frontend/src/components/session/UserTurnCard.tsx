@@ -6,16 +6,21 @@ import { ResponseBody } from './ResponseBody';
 
 interface UserTurnCardProps {
   turn: MessageTurn;
+  turnNumber?: number;
   isActive?: boolean;
+  searchQuery?: string;
   onClick?: () => void;
 }
 
 export const UserTurnCard: React.FC<UserTurnCardProps> = ({
   turn,
+  turnNumber,
   isActive = false,
+  searchQuery = '',
   onClick,
 }) => {
   const content = turn.content || '';
+  const displayTurn = turnNumber || (turn.turn_index >= 0 ? turn.turn_index + 1 : 1);
 
   return (
     <div
@@ -39,7 +44,7 @@ export const UserTurnCard: React.FC<UserTurnCardProps> = ({
             User Prompt
           </span>
           <span className="text-[11px] font-mono text-gray-500">
-            Turn #{turn.turn_index + 1}
+            Turn #{displayTurn}
           </span>
         </div>
 
@@ -54,7 +59,7 @@ export const UserTurnCard: React.FC<UserTurnCardProps> = ({
       {/* Content */}
       <div className="pl-1">
         {content ? (
-          <ResponseBody content={content} defaultMode="md" />
+          <ResponseBody content={content} defaultMode="md" searchQuery={searchQuery} />
         ) : (
           <span className="text-xs text-gray-500 italic">No prompt text recorded</span>
         )}

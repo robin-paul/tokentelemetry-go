@@ -2,22 +2,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   ArrowLeft,
   Bot,
-  User,
-  Wrench,
   Sparkles,
   Coins,
   Cpu,
   Layers,
-  Play,
-  Pause,
-  ChevronLeft,
-  ChevronRight,
-  Search,
-  Brain,
   Copy,
   Check,
   FileCode,
-  SlidersHorizontal,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { formatCost, formatDuration, formatTokens, formatDate } from '../lib/format';
@@ -25,17 +16,19 @@ import { getAgentMeta } from '../lib/agents';
 import type { Session, MessageTurn } from '../lib/types';
 import { UserTurnCard } from './session/UserTurnCard';
 import { AssistantTurnCard } from './session/AssistantTurnCard';
-import { ReasoningCard } from './session/ReasoningCard';
+import { TurnScrubber } from './session/TurnScrubber';
+import { StepIndex } from './session/StepIndex';
+import { StepFilterPopover, type TurnFilterCategory } from './session/StepFilterPopover';
+import { TurnSearchInput } from './session/TurnSearchInput';
 
 interface SessionDetailProps {
   sessionId?: string;
 }
 
-type TurnFilterCategory = 'all' | 'user' | 'assistant' | 'reasoning' | 'tools';
-
 export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSessionId }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [activeStep, setActiveStep] = useState<number>(0);
+  const [revealedCount, setRevealedCount] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<TurnFilterCategory>('all');
@@ -45,6 +38,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const turnRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const rafScrollHandleRef = useRef<number | null>(null);
 
   useEffect(() => {
     let id = propSessionId;
@@ -59,7 +53,9 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
         .then((data) => {
           setSession(data);
           if (data.turns && data.turns.length > 0) {
-            setActiveStep(data.turns.length - 1);
+            const lastIdx = data.turns.length - 1;
+            setActiveStep(lastIdx);
+            setRevealedCount(data.turns.length);
           }
         })
         .catch((e) => console.error('Failed to load session details', e))
@@ -68,6 +64,32 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   }, [propSessionId]);
 
   const turns = session?.turns || [];
+
+  // Cleanup animation frame and timers on unmount
+  useEffect(() => {
+    return () => {
+      if (rafScrollHandleRef.current !== null) {
+        cancelAnimationFrame(rafScrollHandleRef.current);
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, []);
+
+  // RAF-debounced smooth scrolling to target turn
+  const scrollToTurn = (index: number) => {
+    if (rafScrollHandleRef.current !== null) {
+      cancelAnimationFrame(rafScrollHandleRef.current);
+    }
+    rafScrollHandleRef.current = requestAnimationFrame(() => {
+      const el = turnRefs.current[index];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+      rafScrollHandleRef.current = null;
+    });
+  };
 
   // Playback timer loop (600ms per step)
   useEffect(() => {
@@ -78,7 +100,10 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
             setIsPlaying(false);
             return prev;
           }
-          return prev + 1;
+          const next = prev + 1;
+          setRevealedCount((hwm) => Math.max(hwm, next + 1));
+          scrollToTurn(next);
+          return next;
         });
       }, 600);
     } else if (timerRef.current) {
@@ -97,10 +122,36 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   };
 
   const handleStepSeek = (index: number) => {
-    setActiveStep(index);
-    if (turnRefs.current[index]) {
-      turnRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const clampedIndex = Math.max(0, Math.min(turns.length - 1, index));
+    setActiveStep(clampedIndex);
+    setRevealedCount((prev) => Math.max(prev, clampedIndex + 1));
+    scrollToTurn(clampedIndex);
+  };
+
+  const handleTogglePlay = () => {
+    if (!isPlaying && activeStep >= turns.length - 1 && turns.length > 1) {
+      // If at the end, restart from step 0
+      handleStepSeek(0);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(!isPlaying);
     }
+  };
+
+  const handlePrevStep = () => {
+    if (activeStep > 0) {
+      handleStepSeek(activeStep - 1);
+    }
+  };
+
+  const handleNextStep = () => {
+    if (activeStep < turns.length - 1) {
+      handleStepSeek(activeStep + 1);
+    }
+  };
+
+  const handleReset = () => {
+    handleStepSeek(0);
   };
 
   if (loading) {
@@ -133,6 +184,14 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   const toolTurnsCount = turns.filter(
     (t) => (t.tools_invoked && t.tools_invoked.length > 0) || (t.tool_calls && t.tool_calls.length > 0)
   ).length;
+
+  const categoryCounts = {
+    all: turns.length,
+    user: userTurnsCount,
+    assistant: assistantTurnsCount,
+    reasoning: reasoningTurnsCount,
+    tools: toolTurnsCount,
+  };
 
   const filteredTurns = turns.filter((turn) => {
     // 1. Category Filter
@@ -258,7 +317,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
         </div>
       </div>
 
-      {/* Raw JSON viewer modal / accordion */}
+      {/* Raw JSON viewer */}
       {showRawJson && (
         <div className="p-4 rounded-xl bg-[#07090d] border border-white/10 space-y-2">
           <div className="flex items-center justify-between text-xs text-gray-400 font-mono">
@@ -273,133 +332,46 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
 
       {/* Turn Scrubber & Controls Panel */}
       {turns.length > 0 && (
-        <div className="p-4 rounded-xl bg-[#11141a] border border-white/10 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title={isPlaying ? 'Pause auto-replay' : 'Play auto-replay'}
-              >
-                {isPlaying ? <Pause className="w-4 h-4 text-amber-400" /> : <Play className="w-4 h-4 text-emerald-400" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStepSeek(Math.max(0, activeStep - 1))}
-                disabled={activeStep <= 0}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Previous turn"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStepSeek(Math.min(turns.length - 1, activeStep + 1))}
-                disabled={activeStep >= turns.length - 1}
-                className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Next turn"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+        <TurnScrubber
+          activeStep={activeStep}
+          totalSteps={turns.length}
+          revealedCount={revealedCount}
+          isPlaying={isPlaying}
+          onSeek={handleStepSeek}
+          onTogglePlay={handleTogglePlay}
+          onPrevStep={handlePrevStep}
+          onNextStep={handleNextStep}
+          onReset={handleReset}
+        />
+      )}
 
-              <span className="text-gray-400 font-medium ml-2">Timeline Scrubber</span>
-            </div>
-
-            <span className="text-blue-400 font-mono font-semibold">
-              Step {activeStep + 1} of {turns.length}
-            </span>
-          </div>
-
-          <input
-            type="range"
-            min={0}
-            max={turns.length > 0 ? turns.length - 1 : 0}
-            value={activeStep}
-            onChange={(e) => handleStepSeek(parseInt(e.target.value, 10))}
-            className="w-full accent-blue-500 cursor-pointer"
-          />
-        </div>
+      {/* Step Index Strip */}
+      {turns.length > 0 && (
+        <StepIndex
+          turns={turns}
+          activeStep={activeStep}
+          revealedCount={revealedCount}
+          onSelectStep={handleStepSeek}
+          categoryFilter={categoryFilter}
+        />
       )}
 
       {/* Filter and In-Trace Search Strip */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        {/* Category Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-          <button
-            type="button"
-            onClick={() => setCategoryFilter('all')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-              categoryFilter === 'all'
-                ? 'bg-blue-600 text-white font-semibold shadow-sm'
-                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            All Turns ({turns.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setCategoryFilter('user')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-              categoryFilter === 'user'
-                ? 'bg-blue-600 text-white font-semibold shadow-sm'
-                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            User ({userTurnsCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setCategoryFilter('assistant')}
-            className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-              categoryFilter === 'assistant'
-                ? 'bg-blue-600 text-white font-semibold shadow-sm'
-                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
-            }`}
-          >
-            Assistant ({assistantTurnsCount})
-          </button>
-          {reasoningTurnsCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setCategoryFilter('reasoning')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1 ${
-                categoryFilter === 'reasoning'
-                  ? 'bg-amber-600 text-white font-semibold shadow-sm'
-                  : 'bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
-              }`}
-            >
-              <Brain className="w-3.5 h-3.5" />
-              <span>Reasoning ({reasoningTurnsCount})</span>
-            </button>
-          )}
-          {toolTurnsCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setCategoryFilter('tools')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1 ${
-                categoryFilter === 'tools'
-                  ? 'bg-cyan-600 text-white font-semibold shadow-sm'
-                  : 'bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
-              }`}
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              <span>Tools ({toolTurnsCount})</span>
-            </button>
-          )}
-        </div>
+        {/* Step Filter Popover / Category Pills */}
+        <StepFilterPopover
+          activeCategory={categoryFilter}
+          onSelectCategory={setCategoryFilter}
+          counts={categoryCounts}
+        />
 
-        {/* Search Input */}
-        <div className="relative min-w-[240px]">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search prompt, model, tools..."
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-[#11141a] border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500"
-          />
-        </div>
+        {/* In-trace Keyword Search */}
+        <TurnSearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          matchCount={searchQuery.trim() ? filteredTurns.length : undefined}
+          className="min-w-[260px]"
+        />
       </div>
 
       {/* Subagents Section if any */}
@@ -459,15 +431,19 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                   {isUser ? (
                     <UserTurnCard
                       turn={turn}
+                      turnNumber={originalIndex + 1}
                       isActive={isActive}
-                      onClick={() => setActiveStep(originalIndex)}
+                      searchQuery={searchQuery}
+                      onClick={() => handleStepSeek(originalIndex)}
                     />
                   ) : (
                     <AssistantTurnCard
                       turn={turn}
+                      turnNumber={originalIndex + 1}
                       agentName={session.agent_name}
                       isActive={isActive}
-                      onClick={() => setActiveStep(originalIndex)}
+                      searchQuery={searchQuery}
+                      onClick={() => handleStepSeek(originalIndex)}
                     />
                   )}
                 </div>

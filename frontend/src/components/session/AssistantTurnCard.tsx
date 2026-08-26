@@ -9,19 +9,24 @@ import { ToolInvocationCard } from './ToolInvocationCard';
 
 interface AssistantTurnCardProps {
   turn: MessageTurn;
+  turnNumber?: number;
   agentName: string;
   isActive?: boolean;
+  searchQuery?: string;
   onClick?: () => void;
 }
 
 export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
   turn,
+  turnNumber,
   agentName,
   isActive = false,
+  searchQuery = '',
   onClick,
 }) => {
   const meta = getAgentMeta(agentName);
   const totalTokens = turn.input_tokens + turn.output_tokens;
+  const displayTurn = turnNumber || (turn.turn_index >= 0 ? turn.turn_index + 1 : 1);
 
   // Extract tools
   const toolCalls = turn.tool_calls || [];
@@ -66,7 +71,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
             {meta.label} Response
           </span>
           <span className="text-[11px] font-mono text-gray-500">
-            Turn #{turn.turn_index + 1}
+            Turn #{displayTurn}
           </span>
           {turn.model_name && (
             <span className="inline-flex items-center gap-1 text-[10px] font-mono text-gray-400 bg-white/5 px-2 py-0.5 rounded border border-white/5">
@@ -106,11 +111,18 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
           <ReasoningCard
             thinking={turn.thinking}
             reasoningEffort={turn.reasoning_effort}
+            searchQuery={searchQuery}
           />
         )}
 
         {/* Primary Markdown Text Response */}
-        {turn.content && <ResponseBody content={turn.content} defaultMode="md" />}
+        {turn.content && (
+          <ResponseBody
+            content={turn.content}
+            defaultMode="md"
+            searchQuery={searchQuery}
+          />
+        )}
 
         {/* Tool Invocations */}
         {toolCalls.length > 0 ? (
@@ -124,6 +136,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
                   key={tc.id || idx}
                   toolCall={tc}
                   toolResult={matchedResult}
+                  searchQuery={searchQuery}
                 />
               );
             })}
@@ -132,7 +145,11 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
           legacyTools.length > 0 && (
             <div className="space-y-1.5 pt-1">
               {legacyTools.map((tName, idx) => (
-                <ToolInvocationCard key={idx} toolName={tName} />
+                <ToolInvocationCard
+                  key={idx}
+                  toolName={tName}
+                  searchQuery={searchQuery}
+                />
               ))}
             </div>
           )

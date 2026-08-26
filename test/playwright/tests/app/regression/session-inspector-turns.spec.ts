@@ -142,4 +142,138 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
             });
         }
     );
+
+    test(
+        'should support timeline scrubbing, playback stepping, step index navigation, and in-trace keyword search',
+        { tag: '@regression' },
+        async ({ sessionsPage, sessionDetailPage, transcriptFixture, page }) => {
+            const projectName = 'e2e-scrubber-controls-project';
+            const sessionId = `claude-scrub-${Date.now()}`;
+
+            await test.step('GIVEN a multi-turn session with 4 distinct message turns', async () => {
+                const rawTranscript = [
+                    JSON.stringify({
+                        type: 'user',
+                        sessionId: sessionId,
+                        timestamp: '2026-08-26T14:00:00Z',
+                        message: {
+                            content: [{ type: 'text', text: 'Step 1: Explain the token analyzer architecture.' }],
+                        },
+                    }),
+                    JSON.stringify({
+                        type: 'assistant',
+                        sessionId: sessionId,
+                        timestamp: '2026-08-26T14:00:05Z',
+                        message: {
+                            model: 'claude-3-7-sonnet',
+                            usage: { input_tokens: 1000, output_tokens: 400 },
+                            content: [
+                                { type: 'thinking', thinking: 'Analyze high level components.' },
+                                { type: 'text', text: 'Step 2: Architecture comprises Collector CLI and Hub Server.' },
+                            ],
+                        },
+                    }),
+                    JSON.stringify({
+                        type: 'user',
+                        sessionId: sessionId,
+                        timestamp: '2026-08-26T14:00:10Z',
+                        message: {
+                            content: [{ type: 'text', text: 'Step 3: Can you list all tools used for SQLite migration?' }],
+                        },
+                    }),
+                    JSON.stringify({
+                        type: 'assistant',
+                        sessionId: sessionId,
+                        timestamp: '2026-08-26T14:00:15Z',
+                        message: {
+                            model: 'claude-3-7-sonnet',
+                            usage: { input_tokens: 1500, output_tokens: 600 },
+                            content: [
+                                { type: 'text', text: 'Step 4: Executing database migrations now.' },
+                                {
+                                    type: 'tool_use',
+                                    id: 'tool_migration_step_4',
+                                    name: 'apply_schema_patch',
+                                    input: { path: '/migrations/0005_turns.sql' },
+                                },
+                            ],
+                        },
+                    }),
+                ].join('\n');
+
+                await transcriptFixture.writeRawTranscript(
+                    `.claude/projects/${projectName}/${sessionId}.jsonl`,
+                    rawTranscript
+                );
+            });
+
+            await test.step('WHEN the user opens the session in the Session Inspector', async () => {
+                await sessionsPage.open();
+                await expect(sessionsPage.sessionTable).toBeVisible();
+
+                const sessionRow = sessionsPage.getSessionRow(projectName).first();
+                await expect(sessionRow).toBeVisible();
+                await sessionRow.click();
+
+                await expect(sessionDetailPage.sessionIdHeading).toBeVisible();
+            });
+
+            await test.step('THEN the scrubber displays Step 4 of 4 and Step Index shows 4 steps', async () => {
+                await expect(sessionDetailPage.scrubberStepLabel).toContainText('Step 4 of 4');
+                await expect(sessionDetailPage.stepIndexButtons).toHaveCount(4);
+            });
+
+            await test.step('WHEN scrubbing to Step 1 via range slider', async () => {
+                await sessionDetailPage.scrubToStep(0);
+                await expect(sessionDetailPage.scrubberStepLabel).toContainText('Step 1 of 4');
+            });
+
+            await test.step('WHEN stepping forward via Next Turn playback button', async () => {
+                await expect(sessionDetailPage.nextStepButton).toBeEnabled();
+                await sessionDetailPage.nextStepButton.click();
+                await expect(sessionDetailPage.scrubberStepLabel).toContainText('Step 2 of 4');
+            });
+
+            await test.step('WHEN stepping backward via Previous Turn playback button', async () => {
+                await expect(sessionDetailPage.prevStepButton).toBeEnabled();
+                await sessionDetailPage.prevStepButton.click();
+                await expect(sessionDetailPage.scrubberStepLabel).toContainText('Step 1 of 4');
+            });
+
+            await test.step('WHEN clicking Step Index #3 button', async () => {
+                const step3Btn = sessionDetailPage.stepIndexButtons.nth(2);
+                await expect(step3Btn).toBeVisible();
+                await step3Btn.click();
+                await expect(sessionDetailPage.scrubberStepLabel).toContainText('Step 3 of 4');
+            });
+
+            await test.step('WHEN typing a search keyword in TurnSearchInput', async () => {
+                await expect(sessionDetailPage.searchInput).toBeVisible();
+                await sessionDetailPage.searchInput.fill('architecture');
+
+                // Turn 1 (User) and Turn 2 (Assistant) contain 'architecture'
+                await expect(page.getByText(/2 matches/i)).toBeVisible();
+
+                // Clear the search input
+                await page.getByRole('button', { name: /Clear search/i }).click();
+                await expect(sessionDetailPage.searchInput).toHaveValue('');
+            });
+
+            await test.step('WHEN toggling play/pause playback', async () => {
+                // Seek to beginning
+                await sessionDetailPage.scrubToStep(0);
+                await expect(sessionDetailPage.scrubberStepLabel).toContainText('Step 1 of 4');
+
+                // Start playback
+                await sessionDetailPage.playPauseButton.click();
+                // Wait for playback tick (600ms+)
+                await page.waitForTimeout(800);
+
+                // Pause playback
+                await sessionDetailPage.playPauseButton.click();
+                // Should have advanced past Step 1
+                await expect(sessionDetailPage.scrubberStepLabel).not.toContainText('Step 1 of 4');
+            });
+        }
+    );
 });

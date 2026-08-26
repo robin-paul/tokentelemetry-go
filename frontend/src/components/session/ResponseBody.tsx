@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Check, Code, FileText } from 'lucide-react';
+import { HighlightText } from './TurnSearchInput';
 
 interface ResponseBodyProps {
   content: string;
   defaultMode?: 'md' | 'raw';
+  searchQuery?: string;
 }
 
 export const ResponseBody: React.FC<ResponseBodyProps> = ({
   content,
   defaultMode = 'md',
+  searchQuery = '',
 }) => {
   const [mode, setMode] = useState<'md' | 'raw'>(defaultMode);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
@@ -76,7 +79,11 @@ export const ResponseBody: React.FC<ResponseBodyProps> = ({
                       className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300 font-mono text-xs font-normal"
                       {...props}
                     >
-                      {children}
+                      {searchQuery ? (
+                        <HighlightText text={codeString} query={searchQuery} />
+                      ) : (
+                        children
+                      )}
                     </code>
                   );
                 }
@@ -110,7 +117,11 @@ export const ResponseBody: React.FC<ResponseBodyProps> = ({
                     </div>
                     <pre className="p-3.5 overflow-x-auto text-xs font-mono text-gray-200 leading-normal m-0 bg-transparent">
                       <code className={className} {...props}>
-                        {children}
+                        {searchQuery ? (
+                          <HighlightText text={codeString} query={searchQuery} />
+                        ) : (
+                          children
+                        )}
                       </code>
                     </pre>
                   </div>
@@ -161,7 +172,7 @@ export const ResponseBody: React.FC<ResponseBodyProps> = ({
         </div>
       ) : (
         <pre className="mt-2 text-gray-300 whitespace-pre-wrap text-xs font-mono bg-[#07090d] p-4 rounded-xl border border-white/10 overflow-x-auto leading-relaxed">
-          {content}
+          {searchQuery ? <HighlightText text={content} query={searchQuery} /> : content}
         </pre>
       )}
     </div>
