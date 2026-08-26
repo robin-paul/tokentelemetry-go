@@ -19,11 +19,55 @@ export class SessionsPage {
     }
 
     get searchInput(): Locator {
-        return this.page.getByPlaceholder('Search sessions or projects...');
+        return this.page.getByPlaceholder(/Search session/i).or(this.page.getByPlaceholder(/Search/i));
     }
 
     get allAgentsFilterButton(): Locator {
-        return this.page.getByRole('button', { name: 'All Agents' });
+        return this.page.getByRole('button', { name: /All Agents/i });
+    }
+
+    get modelSelect(): Locator {
+        return this.page.locator('select').first();
+    }
+
+    get datePresetAll(): Locator {
+        return this.page.getByRole('button', { name: 'All Time' });
+    }
+
+    get datePresetToday(): Locator {
+        return this.page.getByRole('button', { name: 'Today' });
+    }
+
+    get datePreset7d(): Locator {
+        return this.page.getByRole('button', { name: '7 Days' });
+    }
+
+    get datePreset30d(): Locator {
+        return this.page.getByRole('button', { name: '30 Days' });
+    }
+
+    get rangeFiltersButton(): Locator {
+        return this.page.getByRole('button', { name: /Range Filters/i });
+    }
+
+    get minCostInput(): Locator {
+        return this.page.getByPlaceholder('e.g. 0.05');
+    }
+
+    get maxCostInput(): Locator {
+        return this.page.getByPlaceholder('e.g. 5.00');
+    }
+
+    get minTokensInput(): Locator {
+        return this.page.getByPlaceholder('e.g. 10000');
+    }
+
+    get maxTokensInput(): Locator {
+        return this.page.getByPlaceholder('e.g. 500000');
+    }
+
+    get resetFiltersButton(): Locator {
+        return this.page.getByRole('button', { name: /Reset/i });
     }
 
     get sessionTable(): Locator {
@@ -59,7 +103,6 @@ export class SessionsPage {
 
     async search(query: string): Promise<void> {
         await this.searchInput.fill(query);
-        await this.searchInput.press('Enter');
     }
 
     getSessionRow(identifier: string): Locator {

@@ -428,3 +428,171 @@ func TestWALConcurrency(t *testing.T) {
 		t.Fatalf("WAL concurrency test had %d errors: %v", len(errs), errs[0])
 	}
 }
+
+func TestFTS5AndMultiCriteriaSearch(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	baseTime := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
+
+	// Seed multiple distinct sessions
+	sessions := []*models.Session{
+		{
+			ID:              "sess-alpha-1",
+			SessionID:       "sess-alpha-uuid-111",
+			AgentName:       "claude_code",
+			ProjectName:     "token-analyzer",
+			FilePath:        "/tmp/claude-1.json",
+			StartTime:       baseTime.Add(1 * time.Hour),
+			EndTime:         baseTime.Add(2 * time.Hour),
+			DurationSeconds: 3600,
+			ModelRaw:        "claude-3-7-sonnet",
+			ModelResolved:   "claude-3-7-sonnet",
+			InputTokens:     10000,
+			OutputTokens:    2000,
+			NetCostUSD:      0.08,
+			GitBranch:       "feature/search-filters",
+			Status:          "completed",
+			Turns: []models.MessageTurn{
+				{
+					ID:           "turn-a1",
+					SessionID:    "sess-alpha-1",
+					TurnIndex:    0,
+					ToolsInvoked: []string{"search_web", "view_file"},
+				},
+			},
+		},
+		{
+			ID:              "sess-beta-2",
+			SessionID:       "sess-beta-uuid-222",
+			AgentName:       "gemini_cli",
+			ProjectName:     "token-analyzer",
+			FilePath:        "/tmp/gemini-2.json",
+			StartTime:       baseTime.Add(2 * time.Hour),
+			EndTime:         baseTime.Add(3 * time.Hour),
+			DurationSeconds: 1800,
+			ModelRaw:        "gemini-2.5-pro",
+			ModelResolved:   "gemini-2.5-pro",
+			InputTokens:     50000,
+			OutputTokens:    5000,
+			NetCostUSD:      0.25,
+			GitBranch:       "main",
+			Status:          "completed",
+			Turns: []models.MessageTurn{
+				{
+					ID:           "turn-b1",
+					SessionID:    "sess-beta-2",
+					TurnIndex:    0,
+					ToolsInvoked: []string{"run_command"},
+				},
+			},
+		},
+		{
+			ID:              "sess-gamma-3",
+			SessionID:       "sess-gamma-uuid-333",
+			AgentName:       "cursor",
+			ProjectName:     "tokentelemetry-web",
+			FilePath:        "/tmp/cursor-3.json",
+			StartTime:       baseTime.Add(3 * time.Hour),
+			EndTime:         baseTime.Add(3 * time.Hour + 30*time.Minute),
+			DurationSeconds: 900,
+			ModelRaw:        "gpt-4o",
+			ModelResolved:   "gpt-4o",
+			InputTokens:     2000,
+			OutputTokens:    500,
+			NetCostUSD:      0.015,
+			GitBranch:       "refactor/tui",
+			Status:          "error",
+		},
+	}
+
+	for _, s := range sessions {
+		if err := db.SaveSessionWithTurnsAndSubagents(ctx, s); err != nil {
+			t.Fatalf("failed to save session %s: %v", s.ID, err)
+		}
+	}
+
+	// Test 1: FTS5 search by branch keyword
+	res, total, err := db.ListSessions(ctx, models.FilterParams{
+		Search: "search-filters",
+	})
+	if err != nil {
+		t.Fatalf("FTS search failed: %v", err)
+	}
+	if total != 1 || len(res) != 1 || res[0].ID != "sess-alpha-1" {
+		t.Errorf("expected 1 match for 'search-filters', got total %d, ids %v", total, res)
+	}
+
+	// Test 2: FTS5 prefix search across project name
+	res, total, err = db.ListSessions(ctx, models.FilterParams{
+		Search: "token-analy*",
+	})
+	if err != nil {
+		t.Fatalf("FTS prefix search failed: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("expected 2 matches for 'token-analy*', got %d", total)
+	}
+
+	// Test 3: Multi-value agent filter
+	res, total, err = db.ListSessions(ctx, models.FilterParams{
+		Agents: []string{"claude_code", "cursor"},
+	})
+	if err != nil {
+		t.Fatalf("multi-agent filter failed: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("expected 2 matches for agents [claude_code, cursor], got %d", total)
+	}
+
+	// Test 4: Numeric cost bounding
+	minCost := 0.05
+	maxCost := 0.30
+	res, total, err = db.ListSessions(ctx, models.FilterParams{
+		MinCostUSD: &minCost,
+		MaxCostUSD: &maxCost,
+	})
+	if err != nil {
+		t.Fatalf("cost bounding filter failed: %v", err)
+	}
+	if total != 2 {
+		t.Errorf("expected 2 sessions in cost range [0.05, 0.30], got %d", total)
+	}
+
+	// Test 5: Tool invocation filter
+	res, total, err = db.ListSessions(ctx, models.FilterParams{
+		Tools: []string{"run_command"},
+	})
+	if err != nil {
+		t.Fatalf("tools filter failed: %v", err)
+	}
+	if total != 1 || res[0].ID != "sess-beta-2" {
+		t.Errorf("expected 1 session with tool 'run_command', got total %d", total)
+	}
+
+	// Test 6: Sorting by Cost Descending
+	res, _, err = db.ListSessions(ctx, models.FilterParams{
+		SortBy:    models.SortByCost,
+		SortOrder: models.SortOrderDesc,
+	})
+	if err != nil {
+		t.Fatalf("sorting by cost failed: %v", err)
+	}
+	if len(res) != 3 || res[0].ID != "sess-beta-2" || res[2].ID != "sess-gamma-3" {
+		t.Errorf("unexpected cost sort order: %v, %v, %v", res[0].ID, res[1].ID, res[2].ID)
+	}
+
+	// Test 7: Sorting by Tokens Ascending
+	res, _, err = db.ListSessions(ctx, models.FilterParams{
+		SortBy:    models.SortByTokens,
+		SortOrder: models.SortOrderAsc,
+	})
+	if err != nil {
+		t.Fatalf("sorting by tokens failed: %v", err)
+	}
+	if len(res) != 3 || res[0].ID != "sess-gamma-3" || res[2].ID != "sess-beta-2" {
+		t.Errorf("unexpected tokens sort order: %v, %v, %v", res[0].ID, res[1].ID, res[2].ID)
+	}
+}

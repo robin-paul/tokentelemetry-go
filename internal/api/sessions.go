@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,8 +13,46 @@ import (
 	"github.com/robin-paul/tokentelemetry-go/internal/store"
 )
 
-// ListSessions handles GET /api/sessions and GET /sessions.
-func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request) {
+func parseMultiValue(q url.Values, keys ...string) []string {
+	var result []string
+	for _, key := range keys {
+		values := q[key]
+		for _, v := range values {
+			for _, item := range strings.Split(v, ",") {
+				trimmed := strings.TrimSpace(item)
+				if trimmed != "" {
+					result = append(result, trimmed)
+				}
+			}
+		}
+	}
+	return result
+}
+
+func parseDateTime(val string) time.Time {
+	if val == "" {
+		return time.Time{}
+	}
+	if sec, err := strconv.ParseInt(val, 10, 64); err == nil {
+		if sec > 1e11 {
+			return time.UnixMilli(sec).UTC()
+		}
+		return time.Unix(sec, 0).UTC()
+	}
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, val); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
+}
+
+func parseSessionFilterParams(r *http.Request) models.FilterParams {
 	q := r.URL.Query()
 
 	page, _ := strconv.Atoi(q.Get("page"))
@@ -32,30 +71,144 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request) {
 		limit = 200
 	}
 
-	var startDate, endDate time.Time
-	if fromStr := q.Get("from"); fromStr != "" {
-		startDate, _ = time.Parse("2006-01-02", fromStr)
-		if startDate.IsZero() {
-			startDate, _ = time.Parse(time.RFC3339, fromStr)
-		}
+	// Search
+	search := q.Get("q")
+	if search == "" {
+		search = q.Get("search")
 	}
-	if toStr := q.Get("to"); toStr != "" {
-		endDate, _ = time.Parse("2006-01-02", toStr)
-		if endDate.IsZero() {
-			endDate, _ = time.Parse(time.RFC3339, toStr)
+	searchScope := q.Get("search_scope")
+
+	// Multi-select dimensions
+	agents := parseMultiValue(q, "agent")
+	projects := parseMultiValue(q, "project")
+	modelsList := parseMultiValue(q, "model")
+	machineIDs := parseMultiValue(q, "machine_id")
+	tools := parseMultiValue(q, "tool", "tool_name")
+	subagentTypes := parseMultiValue(q, "subagent_type")
+
+	// Dates
+	startStr := q.Get("since")
+	if startStr == "" {
+		startStr = q.Get("from")
+	}
+	if startStr == "" {
+		startStr = q.Get("start_date")
+	}
+	startDate := parseDateTime(startStr)
+
+	endStr := q.Get("until")
+	if endStr == "" {
+		endStr = q.Get("to")
+	}
+	if endStr == "" {
+		endStr = q.Get("end_date")
+	}
+	endDate := parseDateTime(endStr)
+
+	// Status & Git Branch
+	status := q.Get("status")
+	gitBranch := q.Get("git_branch")
+	parentSessionID := q.Get("parent_session_id")
+
+	var isSubagent *bool
+	if subStr := q.Get("is_subagent"); subStr != "" {
+		if subStr == "true" || subStr == "1" {
+			v := true
+			isSubagent = &v
+		} else if subStr == "false" || subStr == "0" {
+			v := false
+			isSubagent = &v
 		}
 	}
 
-	params := models.FilterParams{
-		Page:      page,
-		Limit:     limit,
-		Agent:     q.Get("agent"),
-		Project:   q.Get("project"),
-		Model:     q.Get("model"),
-		StartDate: startDate,
-		EndDate:   endDate,
-		Search:    q.Get("search"),
+	// Numeric range bounds
+	var minCost, maxCost *float64
+	if v, err := strconv.ParseFloat(q.Get("min_cost"), 64); err == nil {
+		minCost = &v
 	}
+	if v, err := strconv.ParseFloat(q.Get("max_cost"), 64); err == nil {
+		maxCost = &v
+	}
+
+	var minTokens, maxTokens *int64
+	if v, err := strconv.ParseInt(q.Get("min_tokens"), 10, 64); err == nil {
+		minTokens = &v
+	}
+	if v, err := strconv.ParseInt(q.Get("max_tokens"), 10, 64); err == nil {
+		maxTokens = &v
+	}
+
+	var minInputTokens, maxInputTokens *int64
+	if v, err := strconv.ParseInt(q.Get("min_input_tokens"), 10, 64); err == nil {
+		minInputTokens = &v
+	}
+	if v, err := strconv.ParseInt(q.Get("max_input_tokens"), 10, 64); err == nil {
+		maxInputTokens = &v
+	}
+
+	var minOutputTokens, maxOutputTokens *int64
+	if v, err := strconv.ParseInt(q.Get("min_output_tokens"), 10, 64); err == nil {
+		minOutputTokens = &v
+	}
+	if v, err := strconv.ParseInt(q.Get("max_output_tokens"), 10, 64); err == nil {
+		maxOutputTokens = &v
+	}
+
+	var minDuration, maxDuration *float64
+	if v, err := strconv.ParseFloat(q.Get("min_duration"), 64); err == nil {
+		minDuration = &v
+	}
+	if v, err := strconv.ParseFloat(q.Get("max_duration"), 64); err == nil {
+		maxDuration = &v
+	}
+
+	// Sorting
+	sortBy := models.SortField(q.Get("sort_by"))
+	sortOrderStr := strings.ToLower(q.Get("sort_order"))
+	if sortOrderStr == "" {
+		sortOrderStr = strings.ToLower(q.Get("order"))
+	}
+	sortOrder := models.SortOrderDesc
+	if sortOrderStr == "asc" {
+		sortOrder = models.SortOrderAsc
+	}
+
+	return models.FilterParams{
+		Page:            page,
+		Limit:           limit,
+		Search:          search,
+		SearchScope:     searchScope,
+		Agents:          agents,
+		Projects:        projects,
+		Models:          modelsList,
+		MachineIDs:      machineIDs,
+		Tools:           tools,
+		SubagentTypes:   subagentTypes,
+		StartDate:       startDate,
+		EndDate:         endDate,
+		Status:          status,
+		GitBranch:       gitBranch,
+		IsSubagent:      isSubagent,
+		ParentSessionID: parentSessionID,
+		MinCostUSD:      minCost,
+		MaxCostUSD:      maxCost,
+		MinTokens:       minTokens,
+		MaxTokens:       maxTokens,
+		MinInputTokens:  minInputTokens,
+		MaxInputTokens:  maxInputTokens,
+		MinOutputTokens: minOutputTokens,
+		MaxOutputTokens: maxOutputTokens,
+		MinDurationSec:  minDuration,
+		MaxDurationSec:  maxDuration,
+		SortBy:          sortBy,
+		SortOrder:       sortOrder,
+		Format:          q.Get("format"),
+	}
+}
+
+// ListSessions handles GET /api/sessions and GET /sessions.
+func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request) {
+	params := parseSessionFilterParams(r)
 
 	sessions, total, err := s.db.ListSessions(r.Context(), params)
 	if err != nil {
@@ -64,13 +217,13 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Support both wrapped response with pagination and plain session array
-	if q.Get("format") == "paginated" || q.Get("page_size") != "" {
-		totalPages := int((total + int64(limit) - 1) / int64(limit))
+	if params.Format == "paginated" || r.URL.Query().Get("page_size") != "" {
+		totalPages := int((total + int64(params.Limit) - 1) / int64(params.Limit))
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"sessions": sessions,
 			"pagination": map[string]interface{}{
-				"page":        page,
-				"page_size":   limit,
+				"page":        params.Page,
+				"page_size":   params.Limit,
 				"total":       total,
 				"total_pages": totalPages,
 			},

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -378,51 +379,290 @@ func (d *DB) GetSubagentRuns(ctx context.Context, parentSessionID string) ([]mod
 	return runs, rows.Err()
 }
 
-// ListSessions queries sessions with filtering and pagination.
-func (d *DB) ListSessions(ctx context.Context, params models.FilterParams) ([]models.Session, int64, error) {
-	var whereClauses []string
-	var args []interface{}
+// Allowed sort field mapping (Whitelisted column expressions)
+var sortColumnMap = map[models.SortField]string{
+	models.SortByStartTime:    "s.start_time",
+	models.SortByEndTime:      "s.end_time",
+	models.SortByUpdatedAt:    "s.updated_at",
+	models.SortByCost:         "s.net_cost_usd",
+	models.SortByTokens:       "(s.input_tokens + s.output_tokens)",
+	models.SortByInputTokens:  "s.input_tokens",
+	models.SortByOutputTokens: "s.output_tokens",
+	models.SortByDuration:     "s.duration_seconds",
+	models.SortByRelevance:    "rank",
+}
 
-	if params.Agent != "" {
-		whereClauses = append(whereClauses, "agent_name = ?")
-		args = append(args, params.Agent)
+// SanitizeFTSQuery transforms raw user search input into a safe FTS5 MATCH expression.
+func SanitizeFTSQuery(input string, scope string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
 	}
-	if params.Project != "" {
-		whereClauses = append(whereClauses, "project_name = ?")
-		args = append(args, params.Project)
+
+	// Remove dangerous characters that break FTS parser
+	re := regexp.MustCompile(`[^\w\s\-\.\_\/\*\"]+`)
+	clean := re.ReplaceAllString(input, " ")
+
+	tokens := strings.Fields(clean)
+	if len(tokens) == 0 {
+		return ""
 	}
-	if params.Model != "" {
-		whereClauses = append(whereClauses, "(model_raw = ? OR model_resolved = ?)")
-		args = append(args, params.Model, params.Model)
+
+	var terms []string
+	for _, t := range tokens {
+		t = strings.TrimSpace(t)
+		if t == "" || t == "*" || t == "-" || strings.EqualFold(t, "AND") || strings.EqualFold(t, "OR") || strings.EqualFold(t, "NOT") {
+			continue
+		}
+		// Handle phrase or wildcard term
+		if strings.HasPrefix(t, "\"") && strings.HasSuffix(t, "\"") && len(t) > 2 {
+			terms = append(terms, t)
+		} else {
+			termClean := strings.Trim(t, `"*`)
+			if termClean == "" {
+				continue
+			}
+			if strings.HasSuffix(t, "*") {
+				terms = append(terms, `"`+termClean+`"*`)
+			} else {
+				terms = append(terms, `"`+termClean+`"*`)
+			}
+		}
 	}
-	if params.MachineID != "" {
-		whereClauses = append(whereClauses, "machine_id = ?")
-		args = append(args, params.MachineID)
+
+	if len(terms) == 0 {
+		return ""
 	}
+
+	matchExpr := strings.Join(terms, " ")
+	if scope != "" && scope != "all" {
+		switch scope {
+		case "project", "project_name":
+			return fmt.Sprintf("{project_name} : %s", matchExpr)
+		case "agent", "agent_name":
+			return fmt.Sprintf("{agent_name} : %s", matchExpr)
+		case "model":
+			return fmt.Sprintf("{model_resolved} : %s", matchExpr)
+		case "session_id":
+			return fmt.Sprintf("{session_id} : %s", matchExpr)
+		case "branch", "git_branch":
+			return fmt.Sprintf("{git_branch} : %s", matchExpr)
+		}
+	}
+
+	return matchExpr
+}
+
+func buildSessionFilterQuery(params models.FilterParams) (fromSQL string, whereSQL string, args []interface{}) {
+	var where []string
+	fromSQL = "sessions s"
+
+	// 1. FTS5 Full-Text Search Integration
+	ftsQuery := SanitizeFTSQuery(params.Search, params.SearchScope)
+	if ftsQuery != "" {
+		fromSQL = "sessions_fts fts JOIN sessions s ON s.rowid = fts.rowid"
+		where = append(where, "sessions_fts MATCH ?")
+		args = append(args, ftsQuery)
+	}
+
+	// 2. Agents Filter (Multi-select)
+	agents := params.Agents
+	if len(agents) == 0 && params.Agent != "" {
+		for _, a := range strings.Split(params.Agent, ",") {
+			if trimmed := strings.TrimSpace(a); trimmed != "" {
+				agents = append(agents, trimmed)
+			}
+		}
+	}
+	if len(agents) > 0 {
+		placeholders := make([]string, len(agents))
+		for i, a := range agents {
+			placeholders[i] = "?"
+			args = append(args, a)
+		}
+		where = append(where, fmt.Sprintf("s.agent_name IN (%s)", strings.Join(placeholders, ",")))
+	}
+
+	// 3. Projects Filter (Multi-select)
+	projects := params.Projects
+	if len(projects) == 0 && params.Project != "" {
+		for _, p := range strings.Split(params.Project, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				projects = append(projects, trimmed)
+			}
+		}
+	}
+	if len(projects) > 0 {
+		placeholders := make([]string, len(projects))
+		for i, p := range projects {
+			placeholders[i] = "?"
+			args = append(args, p)
+		}
+		where = append(where, fmt.Sprintf("s.project_name IN (%s)", strings.Join(placeholders, ",")))
+	}
+
+	// 4. Models Filter (Raw or Resolved)
+	modelsList := params.Models
+	if len(modelsList) == 0 && params.Model != "" {
+		for _, m := range strings.Split(params.Model, ",") {
+			if trimmed := strings.TrimSpace(m); trimmed != "" {
+				modelsList = append(modelsList, trimmed)
+			}
+		}
+	}
+	if len(modelsList) > 0 {
+		placeholders := make([]string, len(modelsList))
+		for i, m := range modelsList {
+			placeholders[i] = "?"
+			args = append(args, m)
+		}
+		inList := strings.Join(placeholders, ",")
+		where = append(where, fmt.Sprintf("(s.model_resolved IN (%s) OR s.model_raw IN (%s))", inList, inList))
+		for _, m := range modelsList {
+			args = append(args, m)
+		}
+	}
+
+	// 5. Machine IDs Filter
+	machineIDs := params.MachineIDs
+	if len(machineIDs) == 0 && params.MachineID != "" {
+		for _, m := range strings.Split(params.MachineID, ",") {
+			if trimmed := strings.TrimSpace(m); trimmed != "" {
+				machineIDs = append(machineIDs, trimmed)
+			}
+		}
+	}
+	if len(machineIDs) > 0 {
+		placeholders := make([]string, len(machineIDs))
+		for i, m := range machineIDs {
+			placeholders[i] = "?"
+			args = append(args, m)
+		}
+		where = append(where, fmt.Sprintf("s.machine_id IN (%s)", strings.Join(placeholders, ",")))
+	}
+
+	// 6. Status Filter
+	if params.Status != "" && params.Status != "all" {
+		where = append(where, "s.status = ?")
+		args = append(args, params.Status)
+	}
+
+	// 7. Git Branch Filter
+	if params.GitBranch != "" {
+		if strings.Contains(params.GitBranch, "*") {
+			where = append(where, "s.git_branch LIKE ?")
+			args = append(args, strings.ReplaceAll(params.GitBranch, "*", "%"))
+		} else {
+			where = append(where, "s.git_branch = ?")
+			args = append(args, params.GitBranch)
+		}
+	}
+
+	// 8. Subagent Filter
+	if params.IsSubagent != nil {
+		if *params.IsSubagent {
+			where = append(where, "s.is_subagent = 1")
+		} else {
+			where = append(where, "s.is_subagent = 0")
+		}
+	}
+	if params.ParentSessionID != "" {
+		where = append(where, "s.parent_session_id = ?")
+		args = append(args, params.ParentSessionID)
+	}
+	if len(params.SubagentTypes) > 0 {
+		placeholders := make([]string, len(params.SubagentTypes))
+		for i, st := range params.SubagentTypes {
+			placeholders[i] = "?"
+			args = append(args, st)
+		}
+		where = append(where, fmt.Sprintf("s.subagent_type IN (%s)", strings.Join(placeholders, ",")))
+	}
+
+	// 9. Tools Invocation Filter (Subquery Check)
+	if len(params.Tools) > 0 {
+		for _, t := range params.Tools {
+			where = append(where, `EXISTS (
+				SELECT 1 FROM message_turns mt
+				WHERE mt.session_id = s.id AND mt.tools_invoked_json LIKE ?
+			)`)
+			args = append(args, "%\""+t+"\"%")
+		}
+	}
+
+	// 10. Temporal Range
 	if !params.StartDate.IsZero() {
-		whereClauses = append(whereClauses, "start_time >= ?")
+		where = append(where, "s.start_time >= ?")
 		args = append(args, params.StartDate)
 	}
 	if !params.EndDate.IsZero() {
-		whereClauses = append(whereClauses, "start_time <= ?")
+		where = append(where, "s.start_time <= ?")
 		args = append(args, params.EndDate)
 	}
-	if params.Search != "" {
-		whereClauses = append(whereClauses, "(session_id LIKE ? OR project_name LIKE ? OR model_raw LIKE ?)")
-		pattern := "%" + params.Search + "%"
-		args = append(args, pattern, pattern, pattern)
+
+	// 11. Numeric Range (Cost, Tokens, Duration)
+	if params.MinCostUSD != nil {
+		where = append(where, "s.net_cost_usd >= ?")
+		args = append(args, *params.MinCostUSD)
+	}
+	if params.MaxCostUSD != nil {
+		where = append(where, "s.net_cost_usd <= ?")
+		args = append(args, *params.MaxCostUSD)
+	}
+	if params.MinTokens != nil {
+		where = append(where, "(s.input_tokens + s.output_tokens) >= ?")
+		args = append(args, *params.MinTokens)
+	}
+	if params.MaxTokens != nil {
+		where = append(where, "(s.input_tokens + s.output_tokens) <= ?")
+		args = append(args, *params.MaxTokens)
+	}
+	if params.MinInputTokens != nil {
+		where = append(where, "s.input_tokens >= ?")
+		args = append(args, *params.MinInputTokens)
+	}
+	if params.MaxInputTokens != nil {
+		where = append(where, "s.input_tokens <= ?")
+		args = append(args, *params.MaxInputTokens)
+	}
+	if params.MinOutputTokens != nil {
+		where = append(where, "s.output_tokens >= ?")
+		args = append(args, *params.MinOutputTokens)
+	}
+	if params.MaxOutputTokens != nil {
+		where = append(where, "s.output_tokens <= ?")
+		args = append(args, *params.MaxOutputTokens)
+	}
+	if params.MinDurationSec != nil {
+		where = append(where, "s.duration_seconds >= ?")
+		args = append(args, *params.MinDurationSec)
+	}
+	if params.MaxDurationSec != nil {
+		where = append(where, "s.duration_seconds <= ?")
+		args = append(args, *params.MaxDurationSec)
 	}
 
-	whereSQL := ""
-	if len(whereClauses) > 0 {
-		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
+	whereClause := ""
+	if len(where) > 0 {
+		whereClause = "WHERE " + strings.Join(where, " AND ")
 	}
+
+	return fromSQL, whereClause, args
+}
+
+// ListSessions queries sessions with multi-criteria filtering, full-text search, and pagination.
+func (d *DB) ListSessions(ctx context.Context, params models.FilterParams) ([]models.Session, int64, error) {
+	fromTable, whereSQL, args := buildSessionFilterQuery(params)
 
 	// 1. Total Count
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM sessions %s;", whereSQL)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s;", fromTable, whereSQL)
 	var total int64
 	if err := d.readerDB.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count sessions: %w", err)
+	}
+
+	if total == 0 {
+		return []models.Session{}, 0, nil
 	}
 
 	// 2. Paginated Query
@@ -430,25 +670,43 @@ func (d *DB) ListSessions(ctx context.Context, params models.FilterParams) ([]mo
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 200 {
+		limit = 200
+	}
 	page := params.Page
 	if page <= 0 {
 		page = 1
 	}
 	offset := (page - 1) * limit
 
+	// 3. Sorting
+	sortCol, ok := sortColumnMap[params.SortBy]
+	if !ok {
+		sortCol = "s.start_time"
+	}
+	sortDir := "DESC"
+	if params.SortOrder == models.SortOrderAsc {
+		sortDir = "ASC"
+	}
+
+	if params.SortBy == models.SortByRelevance && strings.Contains(fromTable, "sessions_fts") {
+		sortCol = "rank"
+		sortDir = "ASC"
+	}
+
 	query := fmt.Sprintf(`
 	SELECT
-		id, session_id, agent_name, project_name, file_path, machine_id,
-		created_at, updated_at, start_time, end_time, duration_seconds,
-		model_raw, model_resolved, input_tokens, output_tokens,
-		cache_read_tokens, cache_creation_tokens, gross_cost_usd, net_cost_usd,
-		electricity_cost_usd, hardware_profile, status, git_branch,
-		is_subagent, parent_session_id, subagent_type
-	FROM sessions
+		s.id, s.session_id, s.agent_name, s.project_name, s.file_path, s.machine_id,
+		s.created_at, s.updated_at, s.start_time, s.end_time, s.duration_seconds,
+		s.model_raw, s.model_resolved, s.input_tokens, s.output_tokens,
+		s.cache_read_tokens, s.cache_creation_tokens, s.gross_cost_usd, s.net_cost_usd,
+		s.electricity_cost_usd, s.hardware_profile, s.status, s.git_branch,
+		s.is_subagent, s.parent_session_id, s.subagent_type
+	FROM %s
 	%s
-	ORDER BY start_time DESC
+	ORDER BY %s %s
 	LIMIT ? OFFSET ?;
-	`, whereSQL)
+	`, fromTable, whereSQL, sortCol, sortDir)
 
 	queryArgs := append(args, limit, offset)
 	rows, err := d.readerDB.QueryContext(ctx, query, queryArgs...)

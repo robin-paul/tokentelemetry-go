@@ -641,3 +641,161 @@ func TestArtifactEndpoint(t *testing.T) {
 		}
 	})
 }
+
+func TestMultiCriteriaSessionSearchAPI(t *testing.T) {
+	_, db, router, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	baseTime := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+
+	// Seed 3 sessions with various models, costs, and tools
+	s1 := &models.Session{
+		ID:              "sess-search-1",
+		SessionID:       "sess-search-1",
+		AgentName:       "claude_code",
+		ProjectName:     "token-analyzer",
+		FilePath:        "/tmp/s1.json",
+		StartTime:       baseTime.Add(-2 * time.Hour),
+		EndTime:         baseTime.Add(-1 * time.Hour),
+		DurationSeconds: 3600,
+		ModelRaw:        "claude-3-7-sonnet",
+		ModelResolved:   "claude-3-7-sonnet",
+		InputTokens:     15000,
+		OutputTokens:    3000,
+		NetCostUSD:      0.09,
+		GitBranch:       "feature/auth",
+		Status:          "completed",
+		Turns: []models.MessageTurn{
+			{ID: "t1-1", SessionID: "sess-search-1", TurnIndex: 0, ToolsInvoked: []string{"search_web"}},
+		},
+	}
+	s2 := &models.Session{
+		ID:              "sess-search-2",
+		SessionID:       "sess-search-2",
+		AgentName:       "antigravity",
+		ProjectName:     "frontend-app",
+		FilePath:        "/tmp/s2.json",
+		StartTime:       baseTime.Add(-1 * time.Hour),
+		EndTime:         baseTime,
+		DurationSeconds: 1800,
+		ModelRaw:        "gemini-2.5-flash",
+		ModelResolved:   "gemini-2.5-flash",
+		InputTokens:     40000,
+		OutputTokens:    8000,
+		NetCostUSD:      0.02,
+		GitBranch:       "main",
+		Status:          "completed",
+		Turns: []models.MessageTurn{
+			{ID: "t2-1", SessionID: "sess-search-2", TurnIndex: 0, ToolsInvoked: []string{"run_command"}},
+		},
+	}
+	s3 := &models.Session{
+		ID:              "sess-search-3",
+		SessionID:       "sess-search-3",
+		AgentName:       "cursor",
+		ProjectName:     "frontend-app",
+		FilePath:        "/tmp/s3.json",
+		StartTime:       baseTime,
+		EndTime:         baseTime.Add(30 * time.Minute),
+		DurationSeconds: 1800,
+		ModelRaw:        "gpt-4o",
+		ModelResolved:   "gpt-4o",
+		InputTokens:     5000,
+		OutputTokens:    1000,
+		NetCostUSD:      0.03,
+		GitBranch:       "fix/css",
+		Status:          "error",
+	}
+
+	for _, s := range []*models.Session{s1, s2, s3} {
+		if err := db.SaveSessionWithTurnsAndSubagents(ctx, s); err != nil {
+			t.Fatalf("failed to seed session %s: %v", s.ID, err)
+		}
+	}
+
+	// 1. Search with q parameter (FTS)
+	{
+		req := newLocalRequest("GET", "/api/sessions?q=token-analyzer", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("search request failed: %d", w.Code)
+		}
+		var list []models.Session
+		_ = json.NewDecoder(w.Body).Decode(&list)
+		if len(list) != 1 || list[0].ID != "sess-search-1" {
+			t.Errorf("expected 1 session matching token-analyzer, got %d", len(list))
+		}
+	}
+
+	// 2. Multi-value agent filter
+	{
+		req := newLocalRequest("GET", "/api/sessions?agent=antigravity,cursor", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("multi-agent request failed: %d", w.Code)
+		}
+		var list []models.Session
+		_ = json.NewDecoder(w.Body).Decode(&list)
+		if len(list) != 2 {
+			t.Errorf("expected 2 sessions for antigravity,cursor, got %d", len(list))
+		}
+	}
+
+	// 3. Min/Max Cost filter
+	{
+		req := newLocalRequest("GET", "/api/sessions?min_cost=0.05", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("min_cost request failed: %d", w.Code)
+		}
+		var list []models.Session
+		_ = json.NewDecoder(w.Body).Decode(&list)
+		if len(list) != 1 || list[0].ID != "sess-search-1" {
+			t.Errorf("expected 1 session with cost >= 0.05, got %d", len(list))
+		}
+	}
+
+	// 4. Paginated envelope format
+	{
+		req := newLocalRequest("GET", "/api/sessions?format=paginated&limit=2&page=1", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("paginated request failed: %d", w.Code)
+		}
+		var resp struct {
+			Sessions   []models.Session `json:"sessions"`
+			Pagination struct {
+				Page       int   `json:"page"`
+				PageSize   int   `json:"page_size"`
+				Total      int64 `json:"total"`
+				TotalPages int   `json:"total_pages"`
+			} `json:"pagination"`
+		}
+		_ = json.NewDecoder(w.Body).Decode(&resp)
+		if len(resp.Sessions) != 2 || resp.Pagination.Total != 3 || resp.Pagination.TotalPages != 2 {
+			t.Errorf("unexpected paginated response: total=%d, pages=%d, returned=%d",
+				resp.Pagination.Total, resp.Pagination.TotalPages, len(resp.Sessions))
+		}
+	}
+
+	// 5. Sorting by tokens asc
+	{
+		req := newLocalRequest("GET", "/api/sessions?sort_by=tokens&sort_order=asc", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("sorting request failed: %d", w.Code)
+		}
+		var list []models.Session
+		_ = json.NewDecoder(w.Body).Decode(&list)
+		if len(list) != 3 || list[0].ID != "sess-search-3" || list[2].ID != "sess-search-2" {
+			t.Errorf("unexpected token sort order: %v", list)
+		}
+	}
+}
+
