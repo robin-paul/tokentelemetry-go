@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robin-paul/tokentelemetry-go/internal/models"
 )
 
 type CursorParser struct{}
@@ -27,6 +28,8 @@ func (p *CursorParser) Detect(filePath string) bool {
 type cursorLine struct {
 	Role      string `json:"role"`
 	Timestamp string `json:"timestamp"`
+	Text      string `json:"text"`
+	Content   string `json:"content"`
 	Message   *struct {
 		Model string `json:"model"`
 		Usage *struct {
@@ -36,8 +39,10 @@ type cursorLine struct {
 			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 		Content []struct {
-			Type string `json:"type"`
-			Name string `json:"name"`
+			Type  string          `json:"type"`
+			Name  string          `json:"name"`
+			Text  string          `json:"text"`
+			Input json.RawMessage `json:"input"`
 		} `json:"content"`
 	} `json:"message"`
 }
@@ -84,12 +89,20 @@ func (p *CursorParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, in
 			role = "assistant"
 		}
 
+		turnContent := item.Content
+		if turnContent == "" {
+			turnContent = item.Text
+		}
+
 		turn := Turn{
-			Index:     turnIndex,
-			Timestamp: ts,
-			Role:      role,
-			Model:     session.Model,
-			Tools:     make([]string, 0),
+			Index:          turnIndex,
+			Timestamp:      ts,
+			Role:           role,
+			Model:          session.Model,
+			Content:        turnContent,
+			Tools:          make([]string, 0),
+			ToolCalls:      make([]models.ToolCall, 0),
+			RawPayloadJSON: string(line),
 		}
 
 		if item.Message != nil {
@@ -111,10 +124,26 @@ func (p *CursorParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, in
 				session.TotalUsage.CacheCreationTokens += u.CacheCreationInputTokens
 			}
 
+			var textParts []string
 			for _, c := range item.Message.Content {
+				if c.Text != "" {
+					textParts = append(textParts, c.Text)
+				}
 				if c.Name != "" {
 					turn.Tools = append(turn.Tools, c.Name)
+					var argsMap map[string]interface{}
+					if len(c.Input) > 0 {
+						_ = json.Unmarshal(c.Input, &argsMap)
+					}
+					turn.ToolCalls = append(turn.ToolCalls, models.ToolCall{
+						Name:     c.Name,
+						Args:     argsMap,
+						ArgsJSON: string(c.Input),
+					})
 				}
+			}
+			if len(textParts) > 0 && turn.Content == "" {
+				turn.Content = strings.Join(textParts, "\n\n")
 			}
 		}
 

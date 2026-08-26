@@ -19,7 +19,7 @@ export class SessionDetailPage {
     }
 
     get sessionIdHeading(): Locator {
-        return this.page.getByRole('heading');
+        return this.page.getByRole('heading', { level: 1 });
     }
 
     get agentBadge(): Locator {
@@ -54,7 +54,27 @@ export class SessionDetailPage {
     }
 
     get turnCards(): Locator {
-        return this.page.locator('.space-y-3 > .rounded-xl');
+        return this.page.locator('.rounded-xl').filter({ hasText: /Turn #\d+/ });
+    }
+
+    get userTurnCards(): Locator {
+        return this.page.locator('.rounded-xl').filter({ hasText: /User Prompt/i });
+    }
+
+    get assistantTurnCards(): Locator {
+        return this.page.locator('.rounded-xl').filter({ hasText: /Response/i });
+    }
+
+    get reasoningCards(): Locator {
+        return this.page.locator('.rounded-xl').filter({ hasText: /Reasoning & Thoughts/i });
+    }
+
+    get rawMdToggleButtons(): Locator {
+        return this.page.getByRole('button', { name: /View Raw|View MD/i });
+    }
+
+    get copyCodeButtons(): Locator {
+        return this.page.getByRole('button', { name: /Copy Code/i });
     }
 
     get subagentRunsSection(): Locator {

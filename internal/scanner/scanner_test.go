@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/robin-paul/tokentelemetry-go/internal/models"
 	"github.com/robin-paul/tokentelemetry-go/internal/pricing"
 	"github.com/robin-paul/tokentelemetry-go/internal/store"
 )
@@ -112,13 +113,26 @@ func TestScannerEndToEnd(t *testing.T) {
 	_ = f.Close()
 
 	engine.EnqueueFile(sessionFile)
-	time.Sleep(100 * time.Millisecond)
 
-	// Verify database persistence
-	saved, err := db.GetSessionDetail(ctx, sess.ID)
-	if err != nil {
-		t.Fatalf("failed to get saved session: %v", err)
+	// Verify database persistence with retry poll for slow race CI
+	var saved *models.Session
+	for i := 0; i < 40; i++ {
+		time.Sleep(50 * time.Millisecond)
+		s, err := db.GetSessionDetail(ctx, sess.ID)
+		if err == nil && s != nil && len(s.Turns) == 2 {
+			saved = s
+			break
+		}
 	}
+
+	if saved == nil {
+		s, err := db.GetSessionDetail(ctx, sess.ID)
+		if err != nil {
+			t.Fatalf("failed to get saved session: %v", err)
+		}
+		saved = s
+	}
+
 	if saved.InputTokens != 1500 || saved.OutputTokens != 300 {
 		t.Errorf("saved session token mismatch: %+v", saved)
 	}

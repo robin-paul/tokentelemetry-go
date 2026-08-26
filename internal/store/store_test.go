@@ -109,10 +109,12 @@ func TestSessionsCRUD(t *testing.T) {
 			Timestamp:           time.Now().Add(-30 * time.Minute),
 			Role:                "user",
 			ModelName:           "claude-3-7-sonnet",
+			Content:             "Please inspect the database schema.",
 			InputTokens:         1000,
 			OutputTokens:        200,
 			CostUSD:             0.005,
 			ToolsInvoked:        []string{"search_web"},
+			RawPayloadJSON:      `{"role":"user","content":"Please inspect the database schema."}`,
 		},
 		{
 			ID:                  uuid.NewString(),
@@ -121,10 +123,26 @@ func TestSessionsCRUD(t *testing.T) {
 			Timestamp:           time.Now(),
 			Role:                "assistant",
 			ModelName:           "claude-3-7-sonnet",
+			Content:             "I will run queries to inspect the tables.",
+			Thinking:            "Need to run sqlite3 .schema",
+			ReasoningEffort:     "high",
 			InputTokens:         4000,
 			OutputTokens:        1300,
 			CostUSD:             0.03,
 			ToolsInvoked:        []string{"run_command", "view_file"},
+			ToolCalls: []models.ToolCall{
+				{
+					Name: "run_command",
+					Args: map[string]interface{}{"CommandLine": "sqlite3 test.db .schema"},
+				},
+			},
+			ToolResults: []models.ToolResult{
+				{
+					Name:    "run_command",
+					Content: "CREATE TABLE message_turns...",
+				},
+			},
+			RawPayloadJSON:      `{"role":"assistant","content":"I will run queries..."}`,
 		},
 	}
 
@@ -170,6 +188,18 @@ func TestSessionsCRUD(t *testing.T) {
 	}
 	if len(detail.Turns) != 2 {
 		t.Fatalf("expected 2 turns, got %d", len(detail.Turns))
+	}
+	if detail.Turns[0].Content != "Please inspect the database schema." {
+		t.Errorf("unexpected turn 0 content: %q", detail.Turns[0].Content)
+	}
+	if detail.Turns[1].Content != "I will run queries to inspect the tables." || detail.Turns[1].Thinking != "Need to run sqlite3 .schema" || detail.Turns[1].ReasoningEffort != "high" {
+		t.Errorf("unexpected turn 1 fields: content=%q, thinking=%q, effort=%q", detail.Turns[1].Content, detail.Turns[1].Thinking, detail.Turns[1].ReasoningEffort)
+	}
+	if len(detail.Turns[1].ToolCalls) != 1 || detail.Turns[1].ToolCalls[0].Name != "run_command" {
+		t.Errorf("unexpected tool calls in turn 1: %+v", detail.Turns[1].ToolCalls)
+	}
+	if len(detail.Turns[1].ToolResults) != 1 || detail.Turns[1].ToolResults[0].Name != "run_command" {
+		t.Errorf("unexpected tool results in turn 1: %+v", detail.Turns[1].ToolResults)
 	}
 	if len(detail.Turns[0].ToolsInvoked) != 1 || detail.Turns[0].ToolsInvoked[0] != "search_web" {
 		t.Errorf("unexpected tools invoked: %v", detail.Turns[0].ToolsInvoked)

@@ -799,3 +799,104 @@ func TestMultiCriteriaSessionSearchAPI(t *testing.T) {
 	}
 }
 
+func TestGetSessionDetailRichTurns(t *testing.T) {
+	_, db, router, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	sessID := "sess-rich-turns-1"
+
+	sess := &models.Session{
+		ID:              sessID,
+		SessionID:       sessID,
+		AgentName:       "claude_code",
+		ProjectName:     "token-analyzer",
+		FilePath:        "/tmp/rich_turns.jsonl",
+		StartTime:       now.Add(-10 * time.Minute),
+		EndTime:         now,
+		DurationSeconds: 600,
+		ModelRaw:        "claude-3-7-sonnet",
+		ModelResolved:   "claude-3-7-sonnet",
+		InputTokens:     5000,
+		OutputTokens:    1200,
+		NetCostUSD:      0.03,
+		Status:          "completed",
+		Turns: []models.MessageTurn{
+			{
+				ID:             fmt.Sprintf("%s:1", sessID),
+				SessionID:      sessID,
+				TurnIndex:      0,
+				Timestamp:      now.Add(-9 * time.Minute),
+				Role:           "user",
+				ModelName:      "claude-3-7-sonnet",
+				Content:        "Can you implement the rich markdown renderer?",
+				RawPayloadJSON: `{"role":"user","content":"Can you implement the rich markdown renderer?"}`,
+			},
+			{
+				ID:              fmt.Sprintf("%s:2", sessID),
+				SessionID:       sessID,
+				TurnIndex:       1,
+				Timestamp:       now.Add(-8 * time.Minute),
+				Role:            "assistant",
+				ModelName:       "claude-3-7-sonnet",
+				Content:         "```typescript\nconst a = 1;\n```\nHere is the implementation.",
+				Thinking:        "We will use react-markdown with remark-gfm.",
+				ReasoningEffort: "high",
+				InputTokens:     5000,
+				OutputTokens:    1200,
+				ToolsInvoked:    []string{"write_to_file"},
+				ToolCalls: []models.ToolCall{
+					{
+						ID:   "call_1",
+						Name: "write_to_file",
+						Args: map[string]interface{}{"TargetFile": "/path/to/ResponseBody.tsx"},
+					},
+				},
+				ToolResults: []models.ToolResult{
+					{
+						ID:      "call_1",
+						Name:    "write_to_file",
+						Content: "File written successfully",
+					},
+				},
+				RawPayloadJSON: `{"role":"assistant","content":"Done"}`,
+			},
+		},
+	}
+
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, sess); err != nil {
+		t.Fatalf("failed to save rich session: %v", err)
+	}
+
+	req := newLocalRequest("GET", "/api/sessions/"+sessID, nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var fetched models.Session
+	if err := json.NewDecoder(w.Body).Decode(&fetched); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(fetched.Turns) != 2 {
+		t.Fatalf("expected 2 turns, got %d", len(fetched.Turns))
+	}
+	if fetched.Turns[0].Content != "Can you implement the rich markdown renderer?" {
+		t.Errorf("unexpected turn 0 content: %q", fetched.Turns[0].Content)
+	}
+	if fetched.Turns[1].Thinking != "We will use react-markdown with remark-gfm." || fetched.Turns[1].ReasoningEffort != "high" {
+		t.Errorf("unexpected turn 1 thinking/effort: %q / %q", fetched.Turns[1].Thinking, fetched.Turns[1].ReasoningEffort)
+	}
+	if len(fetched.Turns[1].ToolCalls) != 1 || fetched.Turns[1].ToolCalls[0].Name != "write_to_file" {
+		t.Errorf("unexpected turn 1 tool calls: %+v", fetched.Turns[1].ToolCalls)
+	}
+	if len(fetched.Turns[1].ToolResults) != 1 || fetched.Turns[1].ToolResults[0].Content != "File written successfully" {
+		t.Errorf("unexpected turn 1 tool results: %+v", fetched.Turns[1].ToolResults)
+	}
+}
+
+

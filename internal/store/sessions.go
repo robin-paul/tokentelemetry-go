@@ -158,9 +158,11 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 			turnStmt, err := tx.PrepareContext(ctx, `
 				INSERT INTO message_turns (
 					id, session_id, turn_index, timestamp, role,
-					model_name, input_tokens, output_tokens, cache_read_tokens,
-					cache_creation_tokens, cost_usd, tools_invoked_json
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+					model_name, content, thinking, reasoning_effort,
+					input_tokens, output_tokens, cache_read_tokens,
+					cache_creation_tokens, cost_usd, tools_invoked_json,
+					tool_calls_json, tool_results_json, raw_payload_json
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 			`)
 			if err != nil {
 				return fmt.Errorf("failed to prepare message turn insert: %w", err)
@@ -177,10 +179,30 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 						toolsJSON = "[]"
 					}
 				}
+				toolCallsJSON := t.ToolCallsJSON
+				if toolCallsJSON == "" {
+					if len(t.ToolCalls) > 0 {
+						b, _ := json.Marshal(t.ToolCalls)
+						toolCallsJSON = string(b)
+					} else {
+						toolCallsJSON = "[]"
+					}
+				}
+				toolResultsJSON := t.ToolResultsJSON
+				if toolResultsJSON == "" {
+					if len(t.ToolResults) > 0 {
+						b, _ := json.Marshal(t.ToolResults)
+						toolResultsJSON = string(b)
+					} else {
+						toolResultsJSON = "[]"
+					}
+				}
 				if _, err := turnStmt.ExecContext(ctx,
 					t.ID, s.ID, t.TurnIndex, t.Timestamp, t.Role,
-					t.ModelName, t.InputTokens, t.OutputTokens, t.CacheReadTokens,
+					t.ModelName, t.Content, t.Thinking, t.ReasoningEffort,
+					t.InputTokens, t.OutputTokens, t.CacheReadTokens,
 					t.CacheCreationTokens, t.CostUSD, toolsJSON,
+					toolCallsJSON, toolResultsJSON, t.RawPayloadJSON,
 				); err != nil {
 					return fmt.Errorf("failed to insert message turn: %w", err)
 				}
@@ -321,8 +343,10 @@ func (d *DB) GetMessageTurns(ctx context.Context, sessionID string) ([]models.Me
 	query := `
 	SELECT
 		id, session_id, turn_index, timestamp, role,
-		model_name, input_tokens, output_tokens, cache_read_tokens,
-		cache_creation_tokens, cost_usd, tools_invoked_json
+		model_name, COALESCE(content, ''), COALESCE(thinking, ''), COALESCE(reasoning_effort, ''),
+		input_tokens, output_tokens, cache_read_tokens,
+		cache_creation_tokens, cost_usd, COALESCE(tools_invoked_json, '[]'),
+		COALESCE(tool_calls_json, '[]'), COALESCE(tool_results_json, '[]'), COALESCE(raw_payload_json, '')
 	FROM message_turns
 	WHERE session_id = ?
 	ORDER BY turn_index ASC;
@@ -338,13 +362,21 @@ func (d *DB) GetMessageTurns(ctx context.Context, sessionID string) ([]models.Me
 		var t models.MessageTurn
 		if err := rows.Scan(
 			&t.ID, &t.SessionID, &t.TurnIndex, &t.Timestamp, &t.Role,
-			&t.ModelName, &t.InputTokens, &t.OutputTokens, &t.CacheReadTokens,
+			&t.ModelName, &t.Content, &t.Thinking, &t.ReasoningEffort,
+			&t.InputTokens, &t.OutputTokens, &t.CacheReadTokens,
 			&t.CacheCreationTokens, &t.CostUSD, &t.ToolsInvokedJSON,
+			&t.ToolCallsJSON, &t.ToolResultsJSON, &t.RawPayloadJSON,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan message turn: %w", err)
 		}
-		if t.ToolsInvokedJSON != "" {
+		if t.ToolsInvokedJSON != "" && t.ToolsInvokedJSON != "[]" {
 			_ = json.Unmarshal([]byte(t.ToolsInvokedJSON), &t.ToolsInvoked)
+		}
+		if t.ToolCallsJSON != "" && t.ToolCallsJSON != "[]" {
+			_ = json.Unmarshal([]byte(t.ToolCallsJSON), &t.ToolCalls)
+		}
+		if t.ToolResultsJSON != "" && t.ToolResultsJSON != "[]" {
+			_ = json.Unmarshal([]byte(t.ToolResultsJSON), &t.ToolResults)
 		}
 		turns = append(turns, t)
 	}

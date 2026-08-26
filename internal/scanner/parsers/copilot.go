@@ -81,10 +81,12 @@ func (p *CopilotParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, i
 			}
 
 			turn := Turn{
-				Index:     i + 1,
-				Timestamp: ts,
-				Role:      "assistant",
-				Model:     modelName,
+				Index:          i + 1,
+				Timestamp:      ts,
+				Role:           "assistant",
+				Model:          modelName,
+				Content:        req.Message.Text,
+				RawPayloadJSON: string(data),
 				Usage: TokenUsage{
 					InputTokens:  inputTokens,
 					OutputTokens: req.CompletionTokens,
@@ -115,6 +117,8 @@ func (p *CopilotParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, i
 						StartTime string `json:"startTime"`
 					} `json:"context"`
 					Model        string `json:"model"`
+					Content      string `json:"content"`
+					Text         string `json:"text"`
 					OutputTokens int64  `json:"outputTokens"`
 					ModelMetrics map[string]struct {
 						Usage struct {
@@ -143,7 +147,7 @@ func (p *CopilotParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, i
 				}
 			}
 
-			if event.Type == "assistant.message" {
+			if event.Type == "assistant.message" || event.Type == "user.message" {
 				turnIndex++
 				turnModel := event.Data.Model
 				if turnModel == "" {
@@ -152,11 +156,23 @@ func (p *CopilotParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, i
 					session.Model = turnModel
 				}
 
+				role := "assistant"
+				if event.Type == "user.message" {
+					role = "user"
+				}
+
+				turnContent := event.Data.Content
+				if turnContent == "" {
+					turnContent = event.Data.Text
+				}
+
 				session.Turns = append(session.Turns, Turn{
-					Index:     turnIndex,
-					Timestamp: ts,
-					Role:      "assistant",
-					Model:     turnModel,
+					Index:          turnIndex,
+					Timestamp:      ts,
+					Role:           role,
+					Model:          turnModel,
+					Content:        turnContent,
+					RawPayloadJSON: string(line),
 					Usage: TokenUsage{
 						OutputTokens: event.Data.OutputTokens,
 					},

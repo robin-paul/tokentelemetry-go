@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robin-paul/tokentelemetry-go/internal/models"
 )
 
 type ClaudeParser struct{}
@@ -32,6 +33,8 @@ type claudeLine struct {
 	AgentID           string `json:"agentId"`
 	AttributionAgent  string `json:"attributionAgent"`
 	ParentSessionID   string `json:"parentSessionId"`
+	Text              string `json:"text"`
+	Prompt            string `json:"prompt"`
 	Message           *struct {
 		ID    string `json:"id"`
 		Model string `json:"model"`
@@ -45,11 +48,14 @@ type claudeLine struct {
 			} `json:"cache_creation"`
 		} `json:"usage"`
 		Content []struct {
-			Type  string          `json:"type"`
-			ID    string          `json:"id"`
-			Name  string          `json:"name"`
-			Input json.RawMessage `json:"input"`
-			Text  string          `json:"text"`
+			Type      string          `json:"type"`
+			ID        string          `json:"id"`
+			Name      string          `json:"name"`
+			Input     json.RawMessage `json:"input"`
+			Text      string          `json:"text"`
+			Thinking  string          `json:"thinking"`
+			Signature string          `json:"signature"`
+			Content   json.RawMessage `json:"content"`
 		} `json:"content"`
 	} `json:"message"`
 }
@@ -108,11 +114,14 @@ func (p *ClaudeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, in
 		if item.Type == "assistant" && item.Message != nil {
 			turnIndex++
 			turn := Turn{
-				Index:     turnIndex,
-				Timestamp: ts,
-				Role:      "assistant",
-				Model:     item.Message.Model,
-				Tools:     make([]string, 0),
+				Index:          turnIndex,
+				Timestamp:      ts,
+				Role:           "assistant",
+				Model:          item.Message.Model,
+				Tools:          make([]string, 0),
+				ToolCalls:      make([]models.ToolCall, 0),
+				ToolResults:    make([]models.ToolResult, 0),
+				RawPayloadJSON: string(line),
 			}
 
 			if item.Message.Model != "" {
@@ -132,19 +141,86 @@ func (p *ClaudeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, in
 				session.TotalUsage.CacheCreationTokens += u.CacheCreationInputTokens
 			}
 
+			var textParts []string
 			for _, c := range item.Message.Content {
-				if c.Type == "tool_use" && c.Name != "" {
-					turn.Tools = append(turn.Tools, c.Name)
+				switch c.Type {
+				case "text":
+					if c.Text != "" {
+						textParts = append(textParts, c.Text)
+					}
+				case "thinking":
+					th := c.Thinking
+					if th == "" {
+						th = c.Text
+					}
+					turn.Thinking = th
+					turn.ReasoningEffort = "high"
+				case "tool_use":
+					if c.Name != "" {
+						turn.Tools = append(turn.Tools, c.Name)
+					}
+					var argsMap map[string]interface{}
+					if len(c.Input) > 0 {
+						_ = json.Unmarshal(c.Input, &argsMap)
+					}
+					turn.ToolCalls = append(turn.ToolCalls, models.ToolCall{
+						ID:       c.ID,
+						Name:     c.Name,
+						Args:     argsMap,
+						ArgsJSON: string(c.Input),
+					})
+				case "tool_result":
+					var contentVal interface{}
+					if len(c.Content) > 0 {
+						_ = json.Unmarshal(c.Content, &contentVal)
+					} else if c.Text != "" {
+						contentVal = c.Text
+					}
+					turn.ToolResults = append(turn.ToolResults, models.ToolResult{
+						ID:      c.ID,
+						Content: contentVal,
+					})
 				}
 			}
+			turn.Content = strings.Join(textParts, "\n\n")
 
 			session.Turns = append(session.Turns, turn)
 		} else if item.Type == "user" {
 			turnIndex++
+			userContent := item.Text
+			if userContent == "" {
+				userContent = item.Prompt
+			}
+			var userTools []models.ToolResult
+			if item.Message != nil {
+				var parts []string
+				for _, c := range item.Message.Content {
+					if c.Type == "text" && c.Text != "" {
+						parts = append(parts, c.Text)
+					} else if c.Type == "tool_result" {
+						var contentVal interface{}
+						if len(c.Content) > 0 {
+							_ = json.Unmarshal(c.Content, &contentVal)
+						} else if c.Text != "" {
+							contentVal = c.Text
+						}
+						userTools = append(userTools, models.ToolResult{
+							ID:      c.ID,
+							Content: contentVal,
+						})
+					}
+				}
+				if len(parts) > 0 {
+					userContent = strings.Join(parts, "\n\n")
+				}
+			}
 			session.Turns = append(session.Turns, Turn{
-				Index:     turnIndex,
-				Timestamp: ts,
-				Role:      "user",
+				Index:          turnIndex,
+				Timestamp:      ts,
+				Role:           "user",
+				Content:        userContent,
+				ToolResults:    userTools,
+				RawPayloadJSON: string(line),
 			})
 		}
 

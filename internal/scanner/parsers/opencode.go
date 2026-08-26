@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robin-paul/tokentelemetry-go/internal/models"
 	_ "modernc.org/sqlite"
 )
 
@@ -45,6 +46,9 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 			Model     string `json:"model"`
 			ModelID   string `json:"modelID"`
 			Timestamp int64  `json:"timestamp"`
+			Content   string `json:"content"`
+			Text      string `json:"text"`
+			Prompt    string `json:"prompt"`
 			Tool      string `json:"tool"`
 			Name      string `json:"name"`
 			Tokens    *struct {
@@ -56,10 +60,13 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 				} `json:"cache"`
 			} `json:"tokens"`
 			Data *struct {
-				Type   string `json:"type"`
-				Name   string `json:"name"`
-				Tool   string `json:"tool"`
-				Tokens *struct {
+				Type    string          `json:"type"`
+				Name    string          `json:"name"`
+				Tool    string          `json:"tool"`
+				Content string          `json:"content"`
+				Text    string          `json:"text"`
+				Args    json.RawMessage `json:"args"`
+				Tokens  *struct {
 					Input  int64 `json:"input"`
 					Output int64 `json:"output"`
 					Cache  *struct {
@@ -99,45 +106,90 @@ func (p *OpenCodeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, 
 		}
 
 		var toolName string
+		var toolArgs json.RawMessage
 		if item.Data != nil && item.Data.Name != "" {
 			toolName = item.Data.Name
+			toolArgs = item.Data.Args
 		} else if item.Data != nil && item.Data.Tool != "" {
 			toolName = item.Data.Tool
+			toolArgs = item.Data.Args
 		} else if item.Name != "" {
 			toolName = item.Name
 		} else if item.Tool != "" {
 			toolName = item.Tool
 		}
 
-		if tokens != nil {
+		content := item.Content
+		if content == "" {
+			content = item.Text
+		}
+		if content == "" {
+			content = item.Prompt
+		}
+		if content == "" && item.Data != nil {
+			if item.Data.Content != "" {
+				content = item.Data.Content
+			} else if item.Data.Text != "" {
+				content = item.Data.Text
+			}
+		}
+
+		role := item.Role
+		if role == "" {
+			if item.Type == "user" {
+				role = "user"
+			} else {
+				role = "assistant"
+			}
+		}
+
+		if tokens != nil || content != "" || toolName != "" {
 			turnIndex++
 			var cacheRead, cacheWrite int64
-			if tokens.Cache != nil {
-				cacheRead = tokens.Cache.Read
-				cacheWrite = tokens.Cache.Write
+			var inTok, outTok int64
+			if tokens != nil {
+				inTok = tokens.Input
+				outTok = tokens.Output
+				if tokens.Cache != nil {
+					cacheRead = tokens.Cache.Read
+					cacheWrite = tokens.Cache.Write
+				}
 			}
 
 			tools := make([]string, 0)
+			toolCalls := make([]models.ToolCall, 0)
 			if toolName != "" {
 				tools = append(tools, toolName)
+				var argsMap map[string]interface{}
+				if len(toolArgs) > 0 {
+					_ = json.Unmarshal(toolArgs, &argsMap)
+				}
+				toolCalls = append(toolCalls, models.ToolCall{
+					Name:     toolName,
+					Args:     argsMap,
+					ArgsJSON: string(toolArgs),
+				})
 			}
 
 			turn := Turn{
-				Index:     turnIndex,
-				Timestamp: ts,
-				Role:      "assistant",
-				Model:     session.Model,
-				Tools:     tools,
+				Index:          turnIndex,
+				Timestamp:      ts,
+				Role:           role,
+				Model:          session.Model,
+				Content:        content,
+				Tools:          tools,
+				ToolCalls:      toolCalls,
+				RawPayloadJSON: string(line),
 				Usage: TokenUsage{
-					InputTokens:         tokens.Input,
-					OutputTokens:        tokens.Output,
+					InputTokens:         inTok,
+					OutputTokens:        outTok,
 					CacheReadTokens:     cacheRead,
 					CacheCreationTokens: cacheWrite,
 				},
 			}
 
-			session.TotalUsage.InputTokens += tokens.Input
-			session.TotalUsage.OutputTokens += tokens.Output
+			session.TotalUsage.InputTokens += inTok
+			session.TotalUsage.OutputTokens += outTok
 			session.TotalUsage.CacheReadTokens += cacheRead
 			session.TotalUsage.CacheCreationTokens += cacheWrite
 

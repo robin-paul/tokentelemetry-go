@@ -12,13 +12,21 @@ type TokenUsage = models.TokenUsage
 
 // Turn represents an individual message turn parsed from a transcript.
 type Turn struct {
-	Index        int        `json:"index"`
-	Timestamp    time.Time  `json:"timestamp"`
-	Role         string     `json:"role"`
-	Model        string     `json:"model"`
-	Usage        TokenUsage `json:"usage"`
-	Tools        []string   `json:"tools"`
-	CostUSD      float64    `json:"cost_usd,omitempty"`
+	Index           int                 `json:"index"`
+	Timestamp       time.Time           `json:"timestamp"`
+	Role            string              `json:"role"`
+	Model           string              `json:"model"`
+	Content         string              `json:"content,omitempty"`
+	Thinking        string              `json:"thinking,omitempty"`
+	ReasoningEffort string              `json:"reasoning_effort,omitempty"`
+	Usage           TokenUsage          `json:"usage"`
+	Tools           []string            `json:"tools,omitempty"`
+	ToolCallsJSON   string              `json:"tool_calls_json,omitempty"`
+	ToolCalls       []models.ToolCall   `json:"tool_calls,omitempty"`
+	ToolResultsJSON string              `json:"tool_results_json,omitempty"`
+	ToolResults     []models.ToolResult `json:"tool_results,omitempty"`
+	RawPayloadJSON  string              `json:"raw_payload_json,omitempty"`
+	CostUSD         float64             `json:"cost_usd,omitempty"`
 }
 
 // ParsedSession encapsulates the full extracted telemetry for a single session.

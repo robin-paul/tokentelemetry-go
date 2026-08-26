@@ -5,6 +5,20 @@ export interface TokenUsage {
   cache_creation_tokens: number;
 }
 
+export interface ToolCall {
+  id?: string;
+  name: string;
+  args?: Record<string, unknown>;
+  args_json?: string;
+}
+
+export interface ToolResult {
+  id?: string;
+  name?: string;
+  content?: unknown;
+  is_error?: boolean;
+}
+
 export interface MessageTurn {
   id: string;
   session_id: string;
@@ -12,6 +26,9 @@ export interface MessageTurn {
   timestamp: string;
   role: string;
   model_name: string;
+  content?: string;
+  thinking?: string;
+  reasoning_effort?: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -19,6 +36,11 @@ export interface MessageTurn {
   cost_usd: number;
   tools_invoked?: string[];
   tools_invoked_json?: string;
+  tool_calls?: ToolCall[];
+  tool_calls_json?: string;
+  tool_results?: ToolResult[];
+  tool_results_json?: string;
+  raw_payload_json?: string;
 }
 
 export interface SubagentRun {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robin-paul/tokentelemetry-go/internal/models"
 )
 
 type CodexParser struct{}
@@ -33,6 +34,10 @@ type codexLine struct {
 		ModelProvider string `json:"model_provider"`
 		ThreadSource  string `json:"thread_source"`
 		ForkedFromID  string `json:"forked_from_id"`
+		Content       string `json:"content"`
+		Text          string `json:"text"`
+		Message       string `json:"message"`
+		Prompt        string `json:"prompt"`
 		Source        *struct {
 			Subagent *struct {
 				ThreadSpawn *struct {
@@ -121,21 +126,28 @@ func (p *CodexParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int
 			}
 
 			outputTokens := u.OutputTokens
+			effort := ""
+			if u.ReasoningOutputTokens > 0 {
+				effort = "medium"
+			}
 			if u.ReasoningOutputTokens > 0 && u.TotalTokens > (grossInput+outputTokens) {
 				outputTokens += u.ReasoningOutputTokens
 			}
 
 			turn := Turn{
-				Index:     turnIndex,
-				Timestamp: ts,
-				Role:      "assistant",
-				Model:     session.Model,
+				Index:           turnIndex,
+				Timestamp:       ts,
+				Role:            "assistant",
+				Model:           session.Model,
+				ReasoningEffort: effort,
 				Usage: TokenUsage{
 					InputTokens:     netInput,
 					OutputTokens:    outputTokens,
 					CacheReadTokens: cachedInput,
 				},
-				Tools: make([]string, 0),
+				Tools:          make([]string, 0),
+				ToolCalls:      make([]models.ToolCall, 0),
+				RawPayloadJSON: string(line),
 			}
 
 			// Cumulative update: store latest state
@@ -147,8 +159,30 @@ func (p *CodexParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int
 		}
 
 		if item.Type == "response_item" && item.Payload.Name != "" {
+			var argsMap map[string]interface{}
+			if item.Payload.Arguments != "" {
+				_ = json.Unmarshal([]byte(item.Payload.Arguments), &argsMap)
+			}
+			toolCall := models.ToolCall{
+				Name:     item.Payload.Name,
+				Args:     argsMap,
+				ArgsJSON: item.Payload.Arguments,
+			}
 			if len(session.Turns) > 0 {
-				session.Turns[len(session.Turns)-1].Tools = append(session.Turns[len(session.Turns)-1].Tools, item.Payload.Name)
+				lastTurn := &session.Turns[len(session.Turns)-1]
+				lastTurn.Tools = append(lastTurn.Tools, item.Payload.Name)
+				lastTurn.ToolCalls = append(lastTurn.ToolCalls, toolCall)
+			} else {
+				turnIndex++
+				session.Turns = append(session.Turns, Turn{
+					Index:          turnIndex,
+					Timestamp:      ts,
+					Role:           "assistant",
+					Model:          session.Model,
+					Tools:          []string{item.Payload.Name},
+					ToolCalls:      []models.ToolCall{toolCall},
+					RawPayloadJSON: string(line),
+				})
 			}
 		}
 

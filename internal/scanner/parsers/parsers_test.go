@@ -30,7 +30,8 @@ func TestClaudeParser(t *testing.T) {
 		t.Errorf("detection failed for claude path")
 	}
 
-	jsonl := `{"type":"assistant","sessionId":"sess-1","timestamp":"2026-06-10T12:00:00Z","message":{"model":"claude-3-7-sonnet","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200},"content":[{"type":"tool_use","name":"Skill"}]}}`
+	jsonl := `{"type":"user","message":{"content":[{"type":"text","text":"Please analyze this repository."}]}}
+{"type":"assistant","sessionId":"sess-1","timestamp":"2026-06-10T12:00:00Z","message":{"model":"claude-3-7-sonnet","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200},"content":[{"type":"thinking","thinking":"I should explore the codebase."},{"type":"text","text":"Here is the architecture overview."},{"type":"tool_use","id":"tool_1","name":"Skill","input":{"skill":"codebase-design"}}]}}`
 	sess, offset, err := p.Parse(strings.NewReader(jsonl), 0)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -44,8 +45,20 @@ func TestClaudeParser(t *testing.T) {
 	if sess.TotalUsage.InputTokens != 100 || sess.TotalUsage.OutputTokens != 50 || sess.TotalUsage.CacheReadTokens != 1000 {
 		t.Errorf("unexpected usage: %+v", sess.TotalUsage)
 	}
-	if len(sess.Turns) != 1 || len(sess.Turns[0].Tools) != 1 || sess.Turns[0].Tools[0] != "Skill" {
-		t.Errorf("unexpected turns: %+v", sess.Turns)
+	if len(sess.Turns) != 2 {
+		t.Fatalf("expected 2 turns, got %d", len(sess.Turns))
+	}
+	if sess.Turns[0].Role != "user" || sess.Turns[0].Content != "Please analyze this repository." {
+		t.Errorf("unexpected user turn: %+v", sess.Turns[0])
+	}
+	if sess.Turns[1].Role != "assistant" || sess.Turns[1].Content != "Here is the architecture overview." {
+		t.Errorf("unexpected assistant content: %q", sess.Turns[1].Content)
+	}
+	if sess.Turns[1].Thinking != "I should explore the codebase." || sess.Turns[1].ReasoningEffort != "high" {
+		t.Errorf("unexpected thinking or effort: %q / %q", sess.Turns[1].Thinking, sess.Turns[1].ReasoningEffort)
+	}
+	if len(sess.Turns[1].ToolCalls) != 1 || sess.Turns[1].ToolCalls[0].Name != "Skill" {
+		t.Errorf("unexpected tool calls: %+v", sess.Turns[1].ToolCalls)
 	}
 }
 
@@ -72,7 +85,13 @@ func TestAntigravityParser(t *testing.T) {
 		t.Errorf("unexpected usage: %+v", sess.TotalUsage)
 	}
 	if len(sess.Turns) != 2 {
-		t.Errorf("expected 2 turns, got %d", len(sess.Turns))
+		t.Fatalf("expected 2 turns, got %d", len(sess.Turns))
+	}
+	if sess.Turns[0].Content != "Fix the bug" || sess.Turns[1].Content != "Running fix" {
+		t.Errorf("unexpected antigravity turn content: %q / %q", sess.Turns[0].Content, sess.Turns[1].Content)
+	}
+	if len(sess.Turns[1].ToolCalls) != 1 || sess.Turns[1].ToolCalls[0].Name != "exec_command" {
+		t.Errorf("unexpected antigravity tool calls: %+v", sess.Turns[1].ToolCalls)
 	}
 
 	// 2. Dynamic model detection from USER_SETTINGS_CHANGE
@@ -373,5 +392,64 @@ func TestOllamaParser(t *testing.T) {
 	}
 	if sess.AgentName != "ollama" || sess.TotalUsage.InputTokens != 400 || sess.TotalUsage.OutputTokens != 80 {
 		t.Errorf("unexpected ollama session: %+v", sess)
+	}
+}
+
+func TestRichTurnExtractionAcrossAgents(t *testing.T) {
+	// 1. Cursor rich turn
+	cursorP := NewCursorParser()
+	cursorJSON := `{"role":"user","content":"Implement auth"}
+{"role":"assistant","message":{"model":"claude-3-5-sonnet","content":[{"type":"text","text":"I will create auth middleware"},{"name":"ast_grep_search","input":{"pattern":"func Auth"}}]}}`
+	cSess, _, err := cursorP.Parse(strings.NewReader(cursorJSON), 0)
+	if err != nil {
+		t.Fatalf("cursor parse failed: %v", err)
+	}
+	if len(cSess.Turns) != 2 || cSess.Turns[0].Content != "Implement auth" || cSess.Turns[1].Content != "I will create auth middleware" {
+		t.Errorf("unexpected cursor turns: %+v", cSess.Turns)
+	}
+	if len(cSess.Turns[1].ToolCalls) != 1 || cSess.Turns[1].ToolCalls[0].Name != "ast_grep_search" {
+		t.Errorf("unexpected cursor tool calls: %+v", cSess.Turns[1].ToolCalls)
+	}
+
+	// 2. OpenCode rich turn
+	openCodeP := NewOpenCodeParser()
+	openCodeJSON := `{"type":"user","content":"Fix database schema"}
+{"type":"step-finish","model":"claude-sonnet-4-6","data":{"content":"Updated migration file","name":"replace_file_content","args":{"file":"0005.sql"}},"tokens":{"input":1200,"output":300}}`
+	ocSess, _, err := openCodeP.Parse(strings.NewReader(openCodeJSON), 0)
+	if err != nil {
+		t.Fatalf("opencode parse failed: %v", err)
+	}
+	if len(ocSess.Turns) != 2 || ocSess.Turns[0].Content != "Fix database schema" || ocSess.Turns[1].Content != "Updated migration file" {
+		t.Errorf("unexpected opencode turns: %+v", ocSess.Turns)
+	}
+	if len(ocSess.Turns[1].ToolCalls) != 1 || ocSess.Turns[1].ToolCalls[0].Name != "replace_file_content" {
+		t.Errorf("unexpected opencode tool calls: %+v", ocSess.Turns[1].ToolCalls)
+	}
+
+	// 3. Codex rich turn
+	codexP := NewCodexParser()
+	codexJSON := `{"type":"session_meta","payload":{"id":"sess-codex-rich"}}
+{"type":"event_msg","timestamp":"2026-06-10T12:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"output_tokens":150,"reasoning_output_tokens":80,"total_tokens":650}}}}
+{"type":"response_item","payload":{"name":"read_file","arguments":"{\"path\":\"main.go\"}"}}`
+	codexSess, _, err := codexP.Parse(strings.NewReader(codexJSON), 0)
+	if err != nil {
+		t.Fatalf("codex parse failed: %v", err)
+	}
+	if len(codexSess.Turns) != 1 || codexSess.Turns[0].ReasoningEffort != "medium" {
+		t.Errorf("unexpected codex turns: %+v", codexSess.Turns)
+	}
+	if len(codexSess.Turns[0].ToolCalls) != 1 || codexSess.Turns[0].ToolCalls[0].Name != "read_file" {
+		t.Errorf("unexpected codex tool calls: %+v", codexSess.Turns[0].ToolCalls)
+	}
+
+	// 4. Copilot rich turn
+	copilotP := NewCopilotParser()
+	copilotJSON := `{"version":1,"creationDate":1786806413737,"requests":[{"modelId":"gpt-4o","timestamp":1786806413737,"completionTokens":120,"message":{"text":"Here is your solution in Go."}}]}`
+	copilotSess, _, err := copilotP.Parse(strings.NewReader(copilotJSON), 0)
+	if err != nil {
+		t.Fatalf("copilot parse failed: %v", err)
+	}
+	if len(copilotSess.Turns) != 1 || copilotSess.Turns[0].Content != "Here is your solution in Go." {
+		t.Errorf("unexpected copilot turns: %+v", copilotSess.Turns)
 	}
 }

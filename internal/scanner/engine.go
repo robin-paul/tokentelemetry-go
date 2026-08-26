@@ -330,11 +330,19 @@ func (e *Engine) ScanFile(ctx context.Context, filePath string) (*models.Session
 			Timestamp:           t.Timestamp,
 			Role:                t.Role,
 			ModelName:           t.Model,
+			Content:             t.Content,
+			Thinking:            t.Thinking,
+			ReasoningEffort:     t.ReasoningEffort,
 			InputTokens:         t.Usage.InputTokens,
 			OutputTokens:        t.Usage.OutputTokens,
 			CacheReadTokens:     t.Usage.CacheReadTokens,
 			CacheCreationTokens: t.Usage.CacheCreationTokens,
 			ToolsInvoked:        t.Tools,
+			ToolCallsJSON:       t.ToolCallsJSON,
+			ToolCalls:           t.ToolCalls,
+			ToolResultsJSON:     t.ToolResultsJSON,
+			ToolResults:         t.ToolResults,
+			RawPayloadJSON:      t.RawPayloadJSON,
 		}
 	}
 

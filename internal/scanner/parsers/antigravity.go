@@ -176,17 +176,34 @@ func (p *AntigravityParser) Parse(r io.Reader, startOffset int64) (*ParsedSessio
 		}
 
 		turn := Turn{
-			Index:     turnIndex,
-			Timestamp: ts,
-			Role:      role,
-			Model:     session.Model,
-			Tools:     make([]string, 0),
+			Index:          turnIndex,
+			Timestamp:      ts,
+			Role:           role,
+			Model:          session.Model,
+			Content:        step.Content,
+			Thinking:       step.Thinking,
+			Tools:          make([]string, 0),
+			ToolCalls:      make([]models.ToolCall, 0),
+			RawPayloadJSON: string(line),
+		}
+
+		if step.Thinking != "" {
+			turn.ReasoningEffort = "high"
 		}
 
 		for _, tc := range step.ToolCalls {
 			if tc.Name != "" {
 				turn.Tools = append(turn.Tools, tc.Name)
 			}
+			var argsMap map[string]interface{}
+			if len(tc.Args) > 0 {
+				_ = json.Unmarshal(tc.Args, &argsMap)
+			}
+			turn.ToolCalls = append(turn.ToolCalls, models.ToolCall{
+				Name:     tc.Name,
+				Args:     argsMap,
+				ArgsJSON: string(tc.Args),
+			})
 		}
 
 		// Token estimation or explicit metrics

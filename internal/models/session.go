@@ -10,21 +10,45 @@ type TokenUsage struct {
 	CacheCreationTokens int64 `json:"cache_creation_tokens"`
 }
 
-// MessageTurn represents a single conversational turn with token metrics and tool invocations.
+// ToolCall represents a single tool invocation within a message turn.
+type ToolCall struct {
+	ID       string                 `json:"id,omitempty"`
+	Name     string                 `json:"name"`
+	Args     map[string]interface{} `json:"args,omitempty"`
+	ArgsJSON string                 `json:"args_json,omitempty"`
+}
+
+// ToolResult represents the output from a tool execution.
+type ToolResult struct {
+	ID      string      `json:"id,omitempty"`
+	Name    string      `json:"name,omitempty"`
+	Content interface{} `json:"content,omitempty"`
+	IsError bool        `json:"is_error,omitempty"`
+}
+
+// MessageTurn represents a single conversational turn with token metrics, rich content, thoughts, and tool invocations.
 type MessageTurn struct {
-	ID                  string     `json:"id"`
-	SessionID           string     `json:"session_id"`
-	TurnIndex           int        `json:"turn_index"`
-	Timestamp           time.Time  `json:"timestamp"`
-	Role                string     `json:"role"`
-	ModelName           string     `json:"model_name"`
-	InputTokens         int64      `json:"input_tokens"`
-	OutputTokens        int64      `json:"output_tokens"`
-	CacheReadTokens     int64      `json:"cache_read_tokens"`
-	CacheCreationTokens int64      `json:"cache_creation_tokens"`
-	CostUSD             float64    `json:"cost_usd"`
-	ToolsInvokedJSON    string     `json:"tools_invoked_json"`
-	ToolsInvoked        []string   `json:"tools_invoked,omitempty"`
+	ID                  string       `json:"id"`
+	SessionID           string       `json:"session_id"`
+	TurnIndex           int          `json:"turn_index"`
+	Timestamp           time.Time    `json:"timestamp"`
+	Role                string       `json:"role"`
+	ModelName           string       `json:"model_name"`
+	Content             string       `json:"content,omitempty"`
+	Thinking            string       `json:"thinking,omitempty"`
+	ReasoningEffort     string       `json:"reasoning_effort,omitempty"`
+	InputTokens         int64        `json:"input_tokens"`
+	OutputTokens        int64        `json:"output_tokens"`
+	CacheReadTokens     int64        `json:"cache_read_tokens"`
+	CacheCreationTokens int64        `json:"cache_creation_tokens"`
+	CostUSD             float64      `json:"cost_usd"`
+	ToolsInvokedJSON    string       `json:"tools_invoked_json,omitempty"`
+	ToolsInvoked        []string     `json:"tools_invoked,omitempty"`
+	ToolCallsJSON       string       `json:"tool_calls_json,omitempty"`
+	ToolCalls           []ToolCall   `json:"tool_calls,omitempty"`
+	ToolResultsJSON     string       `json:"tool_results_json,omitempty"`
+	ToolResults         []ToolResult `json:"tool_results,omitempty"`
+	RawPayloadJSON      string       `json:"raw_payload_json,omitempty"`
 }
 
 // SubagentRun represents a subagent session spawned by a parent orchestrator.
