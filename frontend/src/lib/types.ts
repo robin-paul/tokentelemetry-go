@@ -10,6 +10,7 @@ export interface ToolCall {
   name: string;
   args?: Record<string, unknown>;
   args_json?: string;
+  duration_ms?: number;
 }
 
 export interface ToolResult {
@@ -17,6 +18,25 @@ export interface ToolResult {
   name?: string;
   content?: unknown;
   is_error?: boolean;
+  duration_ms?: number;
+}
+
+export interface SessionArtifact {
+  name: string;
+  path: string;
+  type: 'image' | 'video' | 'document' | 'terminal';
+  size_bytes?: number;
+  created_at?: string;
+}
+
+export interface PublishedArtifact {
+  kind?: 'page' | 'document';
+  url?: string;
+  path?: string;
+  title?: string;
+  description?: string;
+  favicon?: string;
+  file_name?: string;
 }
 
 export interface MessageTurn {
@@ -59,6 +79,7 @@ export interface Session {
   agent_name: string;
   project_name: string;
   file_path: string;
+  machine_id?: string;
   created_at: string;
   updated_at: string;
   start_time: string;
@@ -81,6 +102,12 @@ export interface Session {
   subagent_type?: string;
   turns?: MessageTurn[];
   subagent_runs?: SubagentRun[];
+  artifacts?: SessionArtifact[];
+  published_artifacts?: PublishedArtifact[];
+  instructions?: string;
+  system_prompt?: string;
+  env?: Record<string, unknown>;
+  cwd?: string;
 }
 
 export interface StatsOverview {
@@ -115,12 +142,51 @@ export interface LeaderboardEntry {
   session_count: number;
 }
 
+export interface WorktreeSummary {
+  name: string;
+  path: string;
+  session_count: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  agents: string[];
+  status: string;
+}
+
+export interface ProjectAggregate {
+  session_count: number;
+  subagent_count: number;
+  plan_count: number;
+  configured_subagent_count: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  agents: string[];
+  mcp_tools: string[];
+  worktree_count: number;
+}
+
 export interface ProjectSummary {
   project_name: string;
+  name?: string;
+  path?: string;
   session_count: number;
   total_tokens: number;
   total_cost_usd: number;
   last_active: string;
+  agents?: string[];
+  mcp_tools?: string[];
+  subagent_count?: number;
+  configured_subagent_count?: number;
+  plan_count?: number;
+  status?: string;
+  canonical_repo?: string;
+  is_worktree?: boolean;
+  worktree_name?: string;
+  parent_path?: string;
+  parent_name?: string;
+  is_repo_root?: boolean;
+  synthesized?: boolean;
+  worktrees?: WorktreeSummary[];
+  aggregate?: ProjectAggregate;
 }
 
 export interface PricingOverride {

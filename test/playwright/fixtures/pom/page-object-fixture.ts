@@ -2,6 +2,7 @@ import { test as base } from '@playwright/test';
 import { DashboardPage } from '../../pages/app/dashboard.page';
 import { SessionsPage } from '../../pages/app/sessions.page';
 import { SessionDetailPage } from '../../pages/app/session-detail.page';
+import { ProjectsPage } from '../../pages/app/projects.page';
 import { SettingsPage } from '../../pages/app/settings.page';
 import { AnalyticsPage } from '../../pages/app/analytics.page';
 import { NavbarComponent } from '../../pages/components/navbar.component';
@@ -16,6 +17,8 @@ export type FrameworkFixtures = {
     sessionsPage: SessionsPage;
     /** Session detail inspector page object */
     sessionDetailPage: SessionDetailPage;
+    /** Projects list and detail page object */
+    projectsPage: ProjectsPage;
     /** Settings and pricing configuration page object */
     settingsPage: SettingsPage;
     /** Analytics and leaderboards page object */
@@ -36,6 +39,9 @@ export const test = base.extend<FrameworkFixtures>({
     },
     sessionDetailPage: async ({ page }, use) => {
         await use(new SessionDetailPage(page));
+    },
+    projectsPage: async ({ page }, use) => {
+        await use(new ProjectsPage(page));
     },
     settingsPage: async ({ page }, use) => {
         await use(new SettingsPage(page));

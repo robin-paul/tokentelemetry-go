@@ -37,13 +37,54 @@ type StatsOverview struct {
 	ActiveProjects   int     `json:"active_projects"`
 }
 
-// ProjectSummary represents aggregated project statistics.
+// WorktreeSummary represents an individual git worktree linked to a parent repository.
+type WorktreeSummary struct {
+	Name         string   `json:"name"`
+	Path         string   `json:"path"`
+	SessionCount int64    `json:"session_count"`
+	TotalTokens  int64    `json:"total_tokens"`
+	TotalCostUSD float64  `json:"total_cost_usd"`
+	Agents       []string `json:"agents"`
+	Status       string   `json:"status"` // "active" | "missing"
+}
+
+// ProjectAggregate holds rolled-up metrics across a repository root and all its worktrees.
+type ProjectAggregate struct {
+	SessionCount            int64    `json:"session_count"`
+	SubagentCount           int64    `json:"subagent_count"`
+	PlanCount               int64    `json:"plan_count"`
+	ConfiguredSubagentCount int64    `json:"configured_subagent_count"`
+	TotalTokens             int64    `json:"total_tokens"`
+	TotalCostUSD            float64  `json:"total_cost_usd"`
+	Agents                  []string `json:"agents"`
+	MCPTools                []string `json:"mcp_tools"`
+	WorktreeCount           int      `json:"worktree_count"`
+}
+
+// ProjectSummary represents aggregated project statistics and git worktree relationships.
 type ProjectSummary struct {
-	ProjectName  string    `json:"project_name"`
-	SessionCount int64     `json:"session_count"`
-	TotalTokens  int64     `json:"total_tokens"`
-	TotalCostUSD float64   `json:"total_cost_usd"`
-	LastActive   time.Time `json:"last_active"`
+	ProjectName             string            `json:"project_name"`
+	Name                    string            `json:"name,omitempty"`
+	Path                    string            `json:"path"`
+	SessionCount            int64             `json:"session_count"`
+	TotalTokens             int64             `json:"total_tokens"`
+	TotalCostUSD            float64           `json:"total_cost_usd"`
+	LastActive              time.Time         `json:"last_active"`
+	Agents                  []string          `json:"agents"`
+	MCPTools                []string          `json:"mcp_tools"`
+	SubagentCount           int64             `json:"subagent_count"`
+	ConfiguredSubagentCount int64             `json:"configured_subagent_count"`
+	PlanCount               int64             `json:"plan_count"`
+	Status                  string            `json:"status"` // "active" | "missing"
+	CanonicalRepo           string            `json:"canonical_repo,omitempty"`
+	IsWorktree              bool              `json:"is_worktree"`
+	WorktreeName            string            `json:"worktree_name,omitempty"`
+	ParentPath              string            `json:"parent_path,omitempty"`
+	ParentName              string            `json:"parent_name,omitempty"`
+	IsRepoRoot              bool              `json:"is_repo_root"`
+	Synthesized             bool              `json:"synthesized"`
+	Worktrees               []WorktreeSummary `json:"worktrees,omitempty"`
+	Aggregate               *ProjectAggregate `json:"aggregate,omitempty"`
 }
 
 // SortField defines the validated field to sort session queries by.

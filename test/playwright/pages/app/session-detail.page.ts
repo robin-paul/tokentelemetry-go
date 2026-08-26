@@ -101,6 +101,66 @@ export class SessionDetailPage {
         return this.page.getByLabel('Search within active trace');
     }
 
+    get waterfall(): Locator {
+        return this.page.getByTestId('execution-waterfall');
+    }
+
+    get waterfallToolRows(): Locator {
+        return this.page.getByTestId('execution-waterfall').locator('.cursor-pointer');
+    }
+
+    get inspectorSidebar(): Locator {
+        return this.page.getByTestId('inspector-sidebar');
+    }
+
+    get contextPanel(): Locator {
+        return this.page.getByTestId('context-panel');
+    }
+
+    get toolsPanel(): Locator {
+        return this.page.getByTestId('tools-panel');
+    }
+
+    get artifactsPanel(): Locator {
+        return this.page.getByTestId('artifacts-panel');
+    }
+
+    get rawPanel(): Locator {
+        return this.page.getByTestId('raw-panel');
+    }
+
+    get tabContext(): Locator {
+        return this.page.getByTestId('inspector-tab-context');
+    }
+
+    get tabTools(): Locator {
+        return this.page.getByTestId('inspector-tab-tools');
+    }
+
+    get tabArtifacts(): Locator {
+        return this.page.getByTestId('inspector-tab-artifacts');
+    }
+
+    get tabRaw(): Locator {
+        return this.page.getByTestId('inspector-tab-raw');
+    }
+
+    get toolInvocationCards(): Locator {
+        return this.page.getByTestId('tool-invocation-card');
+    }
+
+    get artifactLightboxModal(): Locator {
+        return this.page.getByTestId('artifact-lightbox-modal');
+    }
+
+    get copyRawJsonButton(): Locator {
+        return this.page.getByTestId('copy-raw-json-button');
+    }
+
+    get toggleSidebarButton(): Locator {
+        return this.page.getByTestId('toggle-sidebar-button');
+    }
+
     // ==================== Actions ====================
 
     /**

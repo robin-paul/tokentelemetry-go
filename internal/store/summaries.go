@@ -363,7 +363,7 @@ func (d *DB) GetLeaderboard(ctx context.Context, limit int, from, to string) ([]
 	return modelsList, agentsList, nil
 }
 
-// GetProjects lists all discovered projects with token and cost aggregations.
+// GetProjects lists all discovered projects with token, cost, and agent aggregations.
 func (d *DB) GetProjects(ctx context.Context) ([]models.ProjectSummary, error) {
 	query := `
 	SELECT
@@ -371,7 +371,10 @@ func (d *DB) GetProjects(ctx context.Context) ([]models.ProjectSummary, error) {
 		COUNT(*) AS session_count,
 		COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens), 0) AS total_tokens,
 		COALESCE(SUM(net_cost_usd), 0) AS total_cost_usd,
-		MAX(start_time) AS last_active
+		MAX(start_time) AS last_active,
+		COALESCE(SUM(CASE WHEN is_subagent = 1 THEN 1 ELSE 0 END), 0) AS subagent_count,
+		COALESCE(SUM(CASE WHEN status LIKE '%plan%' OR subagent_type = 'plan' THEN 1 ELSE 0 END), 0) AS plan_count,
+		COALESCE(GROUP_CONCAT(DISTINCT agent_name), '') AS agents_csv
 	FROM sessions
 	GROUP BY project_name
 	ORDER BY last_active DESC;
@@ -386,10 +389,23 @@ func (d *DB) GetProjects(ctx context.Context) ([]models.ProjectSummary, error) {
 	for rows.Next() {
 		var p models.ProjectSummary
 		var lastActiveRaw interface{}
-		if err := rows.Scan(&p.ProjectName, &p.SessionCount, &p.TotalTokens, &p.TotalCostUSD, &lastActiveRaw); err != nil {
+		var agentsCSV string
+		if err := rows.Scan(
+			&p.ProjectName, &p.SessionCount, &p.TotalTokens, &p.TotalCostUSD, &lastActiveRaw,
+			&p.SubagentCount, &p.PlanCount, &agentsCSV,
+		); err != nil {
 			return nil, fmt.Errorf("failed to scan project summary: %w", err)
 		}
+		p.Name = p.ProjectName
+		p.Path = p.ProjectName
 		p.LastActive = parseTime(lastActiveRaw)
+		if agentsCSV != "" {
+			p.Agents = strings.Split(agentsCSV, ",")
+		} else {
+			p.Agents = []string{}
+		}
+		p.MCPTools = []string{}
+		p.Worktrees = []models.WorktreeSummary{}
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
@@ -403,15 +419,20 @@ func (d *DB) GetProjectDetail(ctx context.Context, projectName string) (*models.
 		COUNT(*) AS session_count,
 		COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens), 0) AS total_tokens,
 		COALESCE(SUM(net_cost_usd), 0) AS total_cost_usd,
-		MAX(start_time) AS last_active
+		MAX(start_time) AS last_active,
+		COALESCE(SUM(CASE WHEN is_subagent = 1 THEN 1 ELSE 0 END), 0) AS subagent_count,
+		COALESCE(SUM(CASE WHEN status LIKE '%plan%' OR subagent_type = 'plan' THEN 1 ELSE 0 END), 0) AS plan_count,
+		COALESCE(GROUP_CONCAT(DISTINCT agent_name), '') AS agents_csv
 	FROM sessions
 	WHERE project_name = ?
 	GROUP BY project_name;
 	`
 	var p models.ProjectSummary
 	var lastActiveRaw interface{}
+	var agentsCSV string
 	err := d.readerDB.QueryRowContext(ctx, query, projectName).Scan(
 		&p.ProjectName, &p.SessionCount, &p.TotalTokens, &p.TotalCostUSD, &lastActiveRaw,
+		&p.SubagentCount, &p.PlanCount, &agentsCSV,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrNotFound
@@ -419,7 +440,16 @@ func (d *DB) GetProjectDetail(ctx context.Context, projectName string) (*models.
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get project summary: %w", err)
 	}
+	p.Name = p.ProjectName
+	p.Path = p.ProjectName
 	p.LastActive = parseTime(lastActiveRaw)
+	if agentsCSV != "" {
+		p.Agents = strings.Split(agentsCSV, ",")
+	} else {
+		p.Agents = []string{}
+	}
+	p.MCPTools = []string{}
+	p.Worktrees = []models.WorktreeSummary{}
 
 	sessions, _, err := d.ListSessions(ctx, models.FilterParams{
 		Project: projectName,

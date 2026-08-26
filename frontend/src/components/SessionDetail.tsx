@@ -8,7 +8,7 @@ import {
   Layers,
   Copy,
   Check,
-  FileCode,
+  PanelRight,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { formatCost, formatDuration, formatTokens, formatDate } from '../lib/format';
@@ -20,6 +20,9 @@ import { TurnScrubber } from './session/TurnScrubber';
 import { StepIndex } from './session/StepIndex';
 import { StepFilterPopover, type TurnFilterCategory } from './session/StepFilterPopover';
 import { TurnSearchInput } from './session/TurnSearchInput';
+import { ExecutionWaterfall } from './session/ExecutionWaterfall';
+import { InspectorSidebar } from './session/InspectorSidebar';
+import { ArtifactLightboxModal, type LightboxArtifact } from './session/ArtifactLightboxModal';
 
 interface SessionDetailProps {
   sessionId?: string;
@@ -34,7 +37,8 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   const [categoryFilter, setCategoryFilter] = useState<TurnFilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(false);
-  const [showRawJson, setShowRawJson] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeLightboxArtifact, setActiveLightboxArtifact] = useState<LightboxArtifact | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const turnRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -222,7 +226,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="session-detail-view">
       {/* Header & Breadcrumbs */}
       <div>
         <a
@@ -267,11 +271,12 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setShowRawJson(!showRawJson)}
+              data-testid="toggle-sidebar-button"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-gray-300 hover:text-white transition-colors"
             >
-              <FileCode className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{showRawJson ? 'Hide Raw JSON' : 'Raw Session JSON'}</span>
+              <PanelRight className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{isSidebarOpen ? 'Hide Inspector' : 'Show Inspector'}</span>
             </button>
             <div className="px-3.5 py-1.5 rounded-lg bg-[#11141a] border border-white/10 text-right">
               <div className="text-[10px] uppercase tracking-wider text-gray-400">Net Cost</div>
@@ -316,19 +321,6 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
           <div className="text-white font-medium mt-1 tabular">{formatDuration(session.duration_seconds)}</div>
         </div>
       </div>
-
-      {/* Raw JSON viewer */}
-      {showRawJson && (
-        <div className="p-4 rounded-xl bg-[#07090d] border border-white/10 space-y-2">
-          <div className="flex items-center justify-between text-xs text-gray-400 font-mono">
-            <span>Raw Session Payload</span>
-            <span>{session.turns?.length || 0} turns serialized</span>
-          </div>
-          <pre className="p-4 rounded-lg bg-black/60 border border-white/5 text-cyan-300 text-xs font-mono max-h-96 overflow-y-auto leading-relaxed">
-            {JSON.stringify(session, null, 2)}
-          </pre>
-        </div>
-      )}
 
       {/* Turn Scrubber & Controls Panel */}
       {turns.length > 0 && (
@@ -402,56 +394,89 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
         </div>
       )}
 
-      {/* Chronological Turns Stream */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-            Conversation Turns ({filteredTurns.length} of {turns.length})
-          </h3>
+      {/* Main Content Area: Conversation Stream + Inspector Sidebar */}
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        {/* Left/Center Conversation Stream */}
+        <div className="flex-1 min-w-0 space-y-4 w-full">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Conversation Turns ({filteredTurns.length} of {turns.length})
+            </h3>
+          </div>
+
+          {filteredTurns.length === 0 ? (
+            <div className="p-8 text-center text-xs text-gray-500 border border-white/5 rounded-xl bg-[#11141a]">
+              No message turns match the current filter or search criteria.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredTurns.map((turn, index) => {
+                const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
+                const isUser = turn.role === 'user';
+                const isActive = originalIndex === activeStep;
+
+                return (
+                  <div
+                    key={turn.id || originalIndex}
+                    ref={(el) => {
+                      turnRefs.current[originalIndex] = el;
+                    }}
+                  >
+                    {isUser ? (
+                      <UserTurnCard
+                        turn={turn}
+                        turnNumber={originalIndex + 1}
+                        isActive={isActive}
+                        searchQuery={searchQuery}
+                        onClick={() => handleStepSeek(originalIndex)}
+                      />
+                    ) : (
+                      <AssistantTurnCard
+                        turn={turn}
+                        turnNumber={originalIndex + 1}
+                        agentName={session.agent_name}
+                        isActive={isActive}
+                        searchQuery={searchQuery}
+                        onClick={() => handleStepSeek(originalIndex)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Bottom Execution Waterfall Gantt Timeline */}
+          {turns.length > 0 && (
+            <div className="pt-2">
+              <ExecutionWaterfall
+                turns={turns}
+                activeStep={activeStep}
+                onSelectStep={handleStepSeek}
+              />
+            </div>
+          )}
         </div>
 
-        {filteredTurns.length === 0 ? (
-          <div className="p-8 text-center text-xs text-gray-500 border border-white/5 rounded-xl bg-[#11141a]">
-            No message turns match the current filter or search criteria.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {filteredTurns.map((turn, index) => {
-              const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
-              const isUser = turn.role === 'user';
-              const isActive = originalIndex === activeStep;
-
-              return (
-                <div
-                  key={turn.id || originalIndex}
-                  ref={(el) => {
-                    turnRefs.current[originalIndex] = el;
-                  }}
-                >
-                  {isUser ? (
-                    <UserTurnCard
-                      turn={turn}
-                      turnNumber={originalIndex + 1}
-                      isActive={isActive}
-                      searchQuery={searchQuery}
-                      onClick={() => handleStepSeek(originalIndex)}
-                    />
-                  ) : (
-                    <AssistantTurnCard
-                      turn={turn}
-                      turnNumber={originalIndex + 1}
-                      agentName={session.agent_name}
-                      isActive={isActive}
-                      searchQuery={searchQuery}
-                      onClick={() => handleStepSeek(originalIndex)}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* Right Inspector Sidebar (Context, Tools, Artifacts, Raw) */}
+        <InspectorSidebar
+          session={session}
+          activeTurn={turns[activeStep] || null}
+          activeStep={activeStep}
+          isOpen={isSidebarOpen}
+          onToggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
+          onJumpToTurn={handleStepSeek}
+          onOpenArtifact={(art) => setActiveLightboxArtifact(art)}
+        />
       </div>
+
+      {/* Portalled Full-screen Artifact Lightbox Modal */}
+      {activeLightboxArtifact && (
+        <ArtifactLightboxModal
+          artifact={activeLightboxArtifact}
+          onClose={() => setActiveLightboxArtifact(null)}
+        />
+      )}
     </div>
   );
 };
