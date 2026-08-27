@@ -13,11 +13,12 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
             const sessionId = `claude-rich-${Date.now()}`;
 
             await test.step('GIVEN a Claude Code session with rich user prompt, thinking blocks, markdown response, and tool calls', async () => {
+                const now = Date.now();
                 const rawTranscript = [
                     JSON.stringify({
                         type: 'user',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T12:00:00Z',
+                        timestamp: new Date(now - 10000).toISOString(),
                         message: {
                             content: [
                                 {
@@ -30,7 +31,7 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
                     JSON.stringify({
                         type: 'assistant',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T12:00:05Z',
+                        timestamp: new Date(now - 5000).toISOString(),
                         message: {
                             model: 'claude-3-7-sonnet',
                             usage: {
@@ -72,9 +73,11 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
                 await sessionsPage.open();
                 await expect(sessionsPage.sessionTable).toBeVisible();
 
+                await sessionsPage.search(projectName);
                 const sessionRow = sessionsPage.getSessionRow(projectName).first();
                 await expect(sessionRow).toBeVisible();
                 await sessionRow.click();
+                await page.waitForURL(/\/sessions\/.+/);
             });
 
             await test.step('THEN the Session Inspector displays the session metadata and KPI summary', async () => {
@@ -151,11 +154,12 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
             const sessionId = `claude-scrub-${Date.now()}`;
 
             await test.step('GIVEN a multi-turn session with 4 distinct message turns', async () => {
+                const now = Date.now();
                 const rawTranscript = [
                     JSON.stringify({
                         type: 'user',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T14:00:00Z',
+                        timestamp: new Date(now - 15000).toISOString(),
                         message: {
                             content: [{ type: 'text', text: 'Step 1: Explain the token analyzer architecture.' }],
                         },
@@ -163,7 +167,7 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
                     JSON.stringify({
                         type: 'assistant',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T14:00:05Z',
+                        timestamp: new Date(now - 10000).toISOString(),
                         message: {
                             model: 'claude-3-7-sonnet',
                             usage: { input_tokens: 1000, output_tokens: 400 },
@@ -176,7 +180,7 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
                     JSON.stringify({
                         type: 'user',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T14:00:10Z',
+                        timestamp: new Date(now - 5000).toISOString(),
                         message: {
                             content: [{ type: 'text', text: 'Step 3: Can you list all tools used for SQLite migration?' }],
                         },
@@ -184,7 +188,7 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
                     JSON.stringify({
                         type: 'assistant',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T14:00:15Z',
+                        timestamp: new Date(now).toISOString(),
                         message: {
                             model: 'claude-3-7-sonnet',
                             usage: { input_tokens: 1500, output_tokens: 600 },
@@ -211,9 +215,11 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
                 await sessionsPage.open();
                 await expect(sessionsPage.sessionTable).toBeVisible();
 
+                await sessionsPage.search(projectName);
                 const sessionRow = sessionsPage.getSessionRow(projectName).first();
                 await expect(sessionRow).toBeVisible();
                 await sessionRow.click();
+                await page.waitForURL(/\/sessions\/.+/);
 
                 await expect(sessionDetailPage.sessionIdHeading).toBeVisible();
             });

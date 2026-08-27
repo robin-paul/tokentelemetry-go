@@ -13,6 +13,7 @@ interface AssistantTurnCardProps {
   agentName: string;
   isActive?: boolean;
   searchQuery?: string;
+  allToolResults?: ToolResult[];
   onClick?: () => void;
 }
 
@@ -22,6 +23,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
   agentName,
   isActive = false,
   searchQuery = '',
+  allToolResults = [],
   onClick,
 }) => {
   const meta = getAgentMeta(agentName);
@@ -30,7 +32,9 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
 
   // Extract tools
   const toolCalls = turn.tool_calls || [];
-  const toolResults = turn.tool_results || [];
+  const toolResults = (turn.tool_results && turn.tool_results.length > 0)
+    ? turn.tool_results
+    : allToolResults;
 
   // Fallback for legacy tools_invoked
   let legacyTools = turn.tools_invoked || [];

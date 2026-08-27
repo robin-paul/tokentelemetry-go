@@ -10,6 +10,16 @@ interface ResponseBodyProps {
   searchQuery?: string;
 }
 
+const extractText = (c: React.ReactNode): string => {
+  if (typeof c === 'string') return c;
+  if (typeof c === 'number') return String(c);
+  if (Array.isArray(c)) return c.map(extractText).join('');
+  if (c && typeof c === 'object' && 'props' in c && (c as any).props?.children) {
+    return extractText((c as any).props.children);
+  }
+  return '';
+};
+
 export const ResponseBody: React.FC<ResponseBodyProps> = ({
   content,
   defaultMode = 'md',
@@ -69,7 +79,7 @@ export const ResponseBody: React.FC<ResponseBodyProps> = ({
               // Custom code block with syntax container and 1-click Copy Code action
               code({ node, className, children, ...props }) {
                 const match = /language-(\w+)/.exec(className || '');
-                const codeString = String(children).replace(/\n$/, '');
+                const codeString = extractText(children).replace(/\n$/, '');
                 const isInline = !match && !codeString.includes('\n');
                 const blockId = `code-${codeString.slice(0, 16)}-${codeString.length}`;
 

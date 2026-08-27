@@ -50,6 +50,26 @@ export class AnalyticsPage {
             .filter({ has: this.page.getByText('Agent Activity Leaderboard', { exact: true }) });
     }
 
+    get modelSearchInput(): Locator {
+        return this.modelLeaderboardCard.getByPlaceholder(/Filter models/i);
+    }
+
+    get agentSearchInput(): Locator {
+        return this.agentLeaderboardCard.getByPlaceholder(/Filter agents/i);
+    }
+
+    getPresetButton(preset: '7d' | '30d' | '90d' | 'All' | 'Custom'): Locator {
+        return this.page.getByRole('button', { name: new RegExp(`^${preset}$`, 'i') });
+    }
+
+    getModelSortButton(field: 'Volume' | 'Cost' | 'Sessions'): Locator {
+        return this.modelLeaderboardCard.getByRole('button', { name: new RegExp(`^${field}$`, 'i') });
+    }
+
+    getAgentSortButton(field: 'Volume' | 'Cost' | 'Sessions'): Locator {
+        return this.agentLeaderboardCard.getByRole('button', { name: new RegExp(`^${field}$`, 'i') });
+    }
+
     // ==================== Actions ====================
 
     /**
@@ -59,6 +79,10 @@ export class AnalyticsPage {
         await this.page.goto(AppRoutes.ANALYTICS, {
             waitUntil: 'domcontentloaded',
         });
+    }
+
+    async selectDateRange(preset: '7d' | '30d' | '90d' | 'All'): Promise<void> {
+        await this.getPresetButton(preset).click();
     }
 
     getModelLeaderboardRow(modelName: string): Locator {

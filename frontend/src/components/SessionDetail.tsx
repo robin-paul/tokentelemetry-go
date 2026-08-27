@@ -197,6 +197,10 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
     tools: toolTurnsCount,
   };
 
+  const allToolResults = useMemo(() => {
+    return turns.flatMap((t) => t.tool_results || []);
+  }, [turns]);
+
   const filteredTurns = turns.filter((turn) => {
     // 1. Category Filter
     if (categoryFilter === 'user' && turn.role !== 'user') return false;
@@ -437,6 +441,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                         agentName={session.agent_name}
                         isActive={isActive}
                         searchQuery={searchQuery}
+                        allToolResults={allToolResults}
                         onClick={() => handleStepSeek(originalIndex)}
                       />
                     )}

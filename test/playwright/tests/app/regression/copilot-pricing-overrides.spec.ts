@@ -15,7 +15,7 @@ test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides',
     });
 
     test(
-        'should apply custom model pricing override from Settings to subsequent Copilot sessions',
+        'should support full CRUD for model pricing overrides and apply rates to Copilot sessions',
         { tag: '@regression' },
         async ({ settingsPage, sessionsPage, transcriptFixture }) => {
             const projectName = 'e2e-copilot-project';
@@ -37,6 +37,16 @@ test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides',
                 await expect(overrideRow).toContainText('$30.00');
             });
 
+            await test.step('AND the user edits the pricing override to adjust rates', async () => {
+                await settingsPage.editPricingOverride(modelPattern, 15.0, 45.0);
+                await expect(settingsPage.statusMessage).toBeVisible();
+
+                const overrideRow = settingsPage.getOverrideRow(modelPattern);
+                await expect(overrideRow).toBeVisible();
+                await expect(overrideRow).toContainText('$15.00');
+                await expect(overrideRow).toContainText('$45.00');
+            });
+
             await test.step('AND a Copilot session using the overridden model is written to disk', async () => {
                 await transcriptFixture.writeCopilotSession(projectName, sessionId, {
                     requests: [
@@ -55,7 +65,15 @@ test.describe('GitHub Copilot synthetic ingestion and custom pricing overrides',
                 await expect(sessionRow).toBeVisible();
                 await expect(sessionRow).toContainText('GitHub Copilot');
                 await expect(sessionRow).toContainText(modelPattern);
-                await expect(sessionRow).toContainText('$0.40');
+                // 10k prompt @ $15/1M ($0.15) + 10k completion @ $45/1M ($0.45) = $0.60
+                await expect(sessionRow).toContainText('$0.60');
+            });
+
+            await test.step('AND the user deletes the custom pricing override in Settings', async () => {
+                await settingsPage.open();
+                await settingsPage.deleteOverride(modelPattern);
+                await expect(settingsPage.statusMessage).toBeVisible();
+                await expect(settingsPage.getOverrideRow(modelPattern)).not.toBeVisible();
             });
         }
     );

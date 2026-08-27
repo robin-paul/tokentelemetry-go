@@ -62,7 +62,7 @@ export const ExecutionWaterfall: React.FC<ExecutionWaterfallProps> = ({
           const isError = Boolean(matchedResult?.is_error);
 
           let argsPreview = '';
-          if (tc.args) {
+          if (tc.args && typeof tc.args === 'object' && !Array.isArray(tc.args)) {
             argsPreview = Object.keys(tc.args).slice(0, 2).join(', ');
           }
 

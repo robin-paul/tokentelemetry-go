@@ -59,6 +59,11 @@ func (s *Server) Router() http.Handler {
 		router.Get("/projects", s.GetProjects)
 		router.Get("/projects/*", s.GetProjectDetail)
 
+		// Summaries
+		router.Get("/sessions/{id}/summary", s.GetSessionSummary)
+		router.Post("/sessions/{id}/summary", s.GenerateSessionSummary)
+		router.Post("/summaries/recent", s.SummarizeRecent)
+
 		// Pricing
 		router.Get("/pricing", s.GetPricing)
 		router.Post("/pricing/override", s.UpsertPricingOverride)
@@ -78,9 +83,12 @@ func (s *Server) Router() http.Handler {
 	if s.cfg.WebHandler == nil {
 		registerAPIRoutes(r)
 	} else {
-		r.Get("/sessions/{id}/subagents/{subagent_id}/trace", s.GetSubagentTrace)
-		r.Get("/sessions/{id}/delegation", s.GetDelegation)
-		r.Get("/sessions/{id}/grok-forensics", s.GetGrokForensics)
+		r.Get("/sessions", s.cfg.WebHandler.ServeHTTP)
+		r.Get("/sessions/*", s.cfg.WebHandler.ServeHTTP)
+		r.Get("/projects", s.cfg.WebHandler.ServeHTTP)
+		r.Get("/projects/*", s.cfg.WebHandler.ServeHTTP)
+		r.Get("/analytics", s.cfg.WebHandler.ServeHTTP)
+		r.Get("/settings", s.cfg.WebHandler.ServeHTTP)
 	}
 
 	// Additional Root Endpoints
@@ -131,9 +139,6 @@ func (s *Server) Router() http.Handler {
 	r.Get("/summarizer/ollama/models", s.GetOllamaModels)
 	r.Get("/summarizer/codex/models", s.GetCodexModels)
 	r.Post("/summarizer/openai-compat/test", s.TestOpenAICompat)
-	r.Get("/sessions/{id}/summary", s.GetSessionSummary)
-	r.Post("/sessions/{id}/summary", s.GenerateSessionSummary)
-	r.Post("/summaries/recent", s.SummarizeRecent)
 
 	// DSH & Cache
 	r.Get("/dsh/lifecycle", s.GetDSHLifecycle)

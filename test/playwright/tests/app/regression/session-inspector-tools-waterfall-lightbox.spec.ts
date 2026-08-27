@@ -13,11 +13,12 @@ test.describe('Tool Invocations Waterfall, Terminal Outputs, Inspector Sidebar, 
             const sessionId = `claude-waterfall-${Date.now()}`;
 
             await test.step('GIVEN a Claude Code session with tool calls, terminal outputs, diffs, and multiple turns', async () => {
+                const now = Date.now();
                 const rawTranscript = [
                     JSON.stringify({
                         type: 'user',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T15:00:00Z',
+                        timestamp: new Date(now - 15000).toISOString(),
                         message: {
                             content: [{ type: 'text', text: 'Step 1: Check git diff and update schema.' }],
                         },
@@ -25,7 +26,7 @@ test.describe('Tool Invocations Waterfall, Terminal Outputs, Inspector Sidebar, 
                     JSON.stringify({
                         type: 'assistant',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T15:00:05Z',
+                        timestamp: new Date(now - 10000).toISOString(),
                         message: {
                             model: 'claude-3-7-sonnet',
                             usage: { input_tokens: 2000, output_tokens: 500 },
@@ -43,7 +44,7 @@ test.describe('Tool Invocations Waterfall, Terminal Outputs, Inspector Sidebar, 
                     JSON.stringify({
                         type: 'user',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T15:00:10Z',
+                        timestamp: new Date(now - 5000).toISOString(),
                         message: {
                             content: [
                                 {
@@ -58,7 +59,7 @@ test.describe('Tool Invocations Waterfall, Terminal Outputs, Inspector Sidebar, 
                     JSON.stringify({
                         type: 'assistant',
                         sessionId: sessionId,
-                        timestamp: '2026-08-26T15:00:15Z',
+                        timestamp: new Date(now).toISOString(),
                         message: {
                             model: 'claude-3-7-sonnet',
                             usage: { input_tokens: 2500, output_tokens: 700 },
@@ -85,9 +86,11 @@ test.describe('Tool Invocations Waterfall, Terminal Outputs, Inspector Sidebar, 
                 await sessionsPage.open();
                 await expect(sessionsPage.sessionTable).toBeVisible();
 
+                await sessionsPage.search(projectName);
                 const sessionRow = sessionsPage.getSessionRow(projectName).first();
                 await expect(sessionRow).toBeVisible();
                 await sessionRow.click();
+                await page.waitForURL(/\/sessions\/.+/);
 
                 await expect(sessionDetailPage.sessionIdHeading).toBeVisible();
             });

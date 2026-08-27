@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -177,6 +178,10 @@ func (s *Server) GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	for _, dData := range dayAgg {
 		byDay = append(byDay, dData)
 	}
+
+	sort.Slice(byDay, func(i, j int) bool {
+		return byDay[i]["date"].(string) < byDay[j]["date"].(string)
+	})
 
 	totalTokens := totalInput + totalOutput + totalCached + totalCacheReads
 	cacheHitPct := float64(0)

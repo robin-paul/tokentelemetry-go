@@ -34,8 +34,12 @@ export class SettingsPage {
         return this.page.getByRole('button', { name: /Add Rate Override/i });
     }
 
+    get updateOverrideButton(): Locator {
+        return this.page.getByRole('button', { name: /Update Override/i });
+    }
+
     get statusMessage(): Locator {
-        return this.page.getByText(/Custom pricing override saved/i);
+        return this.page.getByText(/(Custom pricing override saved|Pricing override for .* updated|Pricing override for .* removed)/i);
     }
 
     get overridesTable(): Locator {
@@ -48,6 +52,10 @@ export class SettingsPage {
 
     get emptyOverridesNotice(): Locator {
         return this.page.getByText(/No custom overrides configured/i);
+    }
+
+    get searchFilterInput(): Locator {
+        return this.page.getByPlaceholder(/Filter overrides/i);
     }
 
     // ==================== Actions ====================
@@ -76,8 +84,20 @@ export class SettingsPage {
         await this.addOverrideButton.click();
     }
 
+    async editPricingOverride(
+        modelPattern: string,
+        newInputCost: number,
+        newOutputCost: number
+    ): Promise<void> {
+        const row = this.getOverrideRow(modelPattern);
+        await row.locator('button[title="Edit override"]').click();
+        await this.inputCostInput.fill(newInputCost.toString());
+        await this.outputCostInput.fill(newOutputCost.toString());
+        await this.updateOverrideButton.click();
+    }
+
     async deleteOverride(modelPattern: string): Promise<void> {
         const row = this.getOverrideRow(modelPattern);
-        await row.locator('button').click();
+        await row.locator('button[title="Delete override"]').or(row.locator('button').last()).click();
     }
 }

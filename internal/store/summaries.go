@@ -226,12 +226,14 @@ func (d *DB) GetStatsOverview(ctx context.Context, from, to, agent, project stri
 	var whereClauses []string
 	var args []interface{}
 
+	timeExpr := "(CASE WHEN substr(start_time, 1, 4) = '0001' OR start_time IS NULL OR start_time = '' THEN substr(created_at, 1, 10) ELSE substr(start_time, 1, 10) END)"
+
 	if from != "" {
-		whereClauses = append(whereClauses, "start_time >= ?")
+		whereClauses = append(whereClauses, timeExpr+" >= ?")
 		args = append(args, from)
 	}
 	if to != "" {
-		whereClauses = append(whereClauses, "start_time <= ?")
+		whereClauses = append(whereClauses, timeExpr+" <= ?")
 		args = append(args, to)
 	}
 	if agent != "" {
@@ -287,12 +289,13 @@ func (d *DB) GetLeaderboard(ctx context.Context, limit int, from, to string) ([]
 
 	var whereClauses []string
 	var args []interface{}
+	timeExpr := "(CASE WHEN substr(start_time, 1, 4) = '0001' OR start_time IS NULL OR start_time = '' THEN substr(created_at, 1, 10) ELSE substr(start_time, 1, 10) END)"
 	if from != "" {
-		whereClauses = append(whereClauses, "start_time >= ?")
+		whereClauses = append(whereClauses, timeExpr+" >= ?")
 		args = append(args, from)
 	}
 	if to != "" {
-		whereClauses = append(whereClauses, "start_time <= ?")
+		whereClauses = append(whereClauses, timeExpr+" <= ?")
 		args = append(args, to)
 	}
 	whereSQL := ""

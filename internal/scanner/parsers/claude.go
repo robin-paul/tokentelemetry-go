@@ -50,6 +50,7 @@ type claudeLine struct {
 		Content []struct {
 			Type      string          `json:"type"`
 			ID        string          `json:"id"`
+			ToolUseID string          `json:"tool_use_id"`
 			Name      string          `json:"name"`
 			Input     json.RawMessage `json:"input"`
 			Text      string          `json:"text"`
@@ -176,8 +177,12 @@ func (p *ClaudeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, in
 					} else if c.Text != "" {
 						contentVal = c.Text
 					}
+					resID := c.ID
+					if resID == "" {
+						resID = c.ToolUseID
+					}
 					turn.ToolResults = append(turn.ToolResults, models.ToolResult{
-						ID:      c.ID,
+						ID:      resID,
 						Content: contentVal,
 					})
 				}
@@ -204,8 +209,12 @@ func (p *ClaudeParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, in
 						} else if c.Text != "" {
 							contentVal = c.Text
 						}
+						resID := c.ID
+						if resID == "" {
+							resID = c.ToolUseID
+						}
 						userTools = append(userTools, models.ToolResult{
-							ID:      c.ID,
+							ID:      resID,
 							Content: contentVal,
 						})
 					}
