@@ -46,7 +46,7 @@ export default defineConfig({
     /* Reporter configuration */
     reporter: process.env.CI
         ? [['blob'], ['html', { open: 'never' }]]
-        : [['html', { open: 'on-failure' }]],
+        : [['html', { open: 'never' }]],
 
     /* Shared settings for all projects */
     use: {
@@ -67,15 +67,25 @@ export default defineConfig({
         timeout: 10000,
     },
 
-    /* Auto-start TokenTelemetry Go single binary for tests */
-    webServer: {
-        command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tt-server ] || make build ) && ./bin/tt-server --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
-        url: `${appUrl}/healthz`,
-        reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
-        stdout: 'pipe',
-        stderr: 'pipe',
-        timeout: 30000,
-    },
+    /* Auto-start TokenTelemetry Go Hub server and Next.js baseline for tests */
+    webServer: [
+        {
+            command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tt-server ] || make build ) && ./bin/tt-server --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
+            url: `${appUrl}/healthz`,
+            reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
+            stdout: 'pipe',
+            stderr: 'pipe',
+            timeout: 30000,
+        },
+        {
+            command: `sh -c "cd ../../../tokentelemetry/frontend && ( [ -d .next ] || npm run build ) && npx next start -p 3000"`,
+            url: 'http://127.0.0.1:3000',
+            reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
+            stdout: 'pipe',
+            stderr: 'pipe',
+            timeout: 30000,
+        },
+    ],
 
     /* Configure projects */
     projects: [
@@ -88,7 +98,17 @@ export default defineConfig({
         /* Main UI test project - Chromium */
         {
             name: 'chromium',
-            testIgnore: /.*\/api\/.*\.spec\.ts/,
+            testIgnore: [/.*\/api\/.*\.spec\.ts/, /.*\/visual\/.*\.spec\.ts/],
+            use: {
+                ...devices['Desktop Chrome'],
+                viewport: { width: 1920, height: 1080 },
+            },
+        },
+
+        /* Visual regression diff project */
+        {
+            name: 'visual',
+            testMatch: /.*\/visual\/.*\.spec\.ts/,
             use: {
                 ...devices['Desktop Chrome'],
                 viewport: { width: 1920, height: 1080 },

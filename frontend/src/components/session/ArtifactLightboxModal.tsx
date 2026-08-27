@@ -31,6 +31,7 @@ export const ArtifactLightboxModal: React.FC<ArtifactLightboxModalProps> = ({
   artifact,
   onClose,
 }) => {
+  if (typeof document === 'undefined') return null;
   const [zoomScale, setZoomScale] = useState(1);
   const [fetchedContent, setFetchedContent] = useState<string | null>(
     'content' in artifact && typeof artifact.content === 'string' ? artifact.content : null

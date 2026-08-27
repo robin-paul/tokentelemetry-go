@@ -2,7 +2,7 @@ VERSION ?= 2.0.0
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
 
-.PHONY: all build-frontend build-server build-cli build-all build test test-ui test-ui-smoke test-ui-headed docker-build kill clean
+.PHONY: all build-frontend build-server build-cli build-all build test test-ui test-ui-smoke test-ui-visual test-ui-headed docker-build kill clean
 
 all: build-all
 
@@ -33,6 +33,10 @@ test-ui: build-server
 test-ui-smoke: build-server
 	@echo "==> Running Playwright Smoke Tests..."
 	cd test/playwright && ( [ -d node_modules ] || npm ci ) && npx playwright test --grep @smoke
+
+test-ui-visual: build-server
+	@echo "==> Running Dual-Server Playwright Visual Regression Diff Suite..."
+	cd test/playwright && ( [ -d node_modules ] || npm ci ) && npx playwright test --project=visual
 
 test-ui-headed: build-server
 	@echo "==> Running Playwright Tests in Headed Mode..."

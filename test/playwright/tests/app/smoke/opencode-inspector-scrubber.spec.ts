@@ -53,6 +53,7 @@ test.describe('OpenCode synthetic transcript ingestion and session inspector scr
 
             await test.step('WHEN the user clicks into the Session Inspector', async () => {
                 await sessionsPage.clickSession(projectName);
+                await expect(sessionDetailPage.sessionIdHeading).toBeVisible();
                 await expect(sessionDetailPage.agentBadge).toBeVisible();
                 await expect(sessionDetailPage.agentBadge).toContainText('OpenCode');
             });

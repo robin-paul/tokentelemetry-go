@@ -39,6 +39,7 @@ test/playwright/node_modules/
 test/playwright/test-results/
 test/playwright/playwright-report/
 test/playwright/blob-report/
+test/playwright/artifacts/
 test/playwright/.auth/
 test/playwright/env/.env.*
 !test/playwright/env/.env.example

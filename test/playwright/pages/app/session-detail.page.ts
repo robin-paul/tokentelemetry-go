@@ -19,11 +19,11 @@ export class SessionDetailPage {
     }
 
     get sessionIdHeading(): Locator {
-        return this.page.getByRole('heading', { level: 1 });
+        return this.page.locator('[data-testid="session-id-heading"], [data-test="session-id-heading"], h1').first();
     }
 
     get agentBadge(): Locator {
-        return this.page.locator('span.font-semibold').first();
+        return this.page.locator('[data-testid="agent-badge"], [data-test="agent-badge"], span.font-semibold').first();
     }
 
     get projectNameLabel(): Locator {
@@ -102,63 +102,63 @@ export class SessionDetailPage {
     }
 
     get waterfall(): Locator {
-        return this.page.getByTestId('execution-waterfall');
+        return this.page.locator('[data-testid="execution-waterfall"], [data-test="execution-waterfall"]');
     }
 
     get waterfallToolRows(): Locator {
-        return this.page.getByTestId('execution-waterfall').locator('.cursor-pointer');
+        return this.waterfall.locator('.cursor-pointer');
     }
 
     get inspectorSidebar(): Locator {
-        return this.page.getByTestId('inspector-sidebar');
+        return this.page.locator('[data-testid="inspector-sidebar"], [data-test="inspector-sidebar"]');
     }
 
     get contextPanel(): Locator {
-        return this.page.getByTestId('context-panel');
+        return this.page.locator('[data-testid="context-panel"], [data-test="context-panel"]');
     }
 
     get toolsPanel(): Locator {
-        return this.page.getByTestId('tools-panel');
+        return this.page.locator('[data-testid="tools-panel"], [data-test="tools-panel"]');
     }
 
     get artifactsPanel(): Locator {
-        return this.page.getByTestId('artifacts-panel');
+        return this.page.locator('[data-testid="artifacts-panel"], [data-test="artifacts-panel"]');
     }
 
     get rawPanel(): Locator {
-        return this.page.getByTestId('raw-panel');
+        return this.page.locator('[data-testid="raw-panel"], [data-test="raw-panel"]');
     }
 
     get tabContext(): Locator {
-        return this.page.getByTestId('inspector-tab-context');
+        return this.page.locator('[data-testid="inspector-tab-context"], [data-test="inspector-tab-context"]');
     }
 
     get tabTools(): Locator {
-        return this.page.getByTestId('inspector-tab-tools');
+        return this.page.locator('[data-testid="inspector-tab-tools"], [data-test="inspector-tab-tools"]');
     }
 
     get tabArtifacts(): Locator {
-        return this.page.getByTestId('inspector-tab-artifacts');
+        return this.page.locator('[data-testid="inspector-tab-artifacts"], [data-test="inspector-tab-artifacts"]');
     }
 
     get tabRaw(): Locator {
-        return this.page.getByTestId('inspector-tab-raw');
+        return this.page.locator('[data-testid="inspector-tab-raw"], [data-test="inspector-tab-raw"]');
     }
 
     get toolInvocationCards(): Locator {
-        return this.page.getByTestId('tool-invocation-card');
+        return this.page.locator('[data-testid="tool-invocation-card"], [data-test="tool-invocation-card"]');
     }
 
     get artifactLightboxModal(): Locator {
-        return this.page.getByTestId('artifact-lightbox-modal');
+        return this.page.locator('[data-testid="artifact-lightbox-modal"], [data-test="artifact-lightbox-modal"]');
     }
 
     get copyRawJsonButton(): Locator {
-        return this.page.getByTestId('copy-raw-json-button');
+        return this.page.locator('[data-testid="copy-raw-json-button"], [data-test="copy-raw-json-button"]');
     }
 
     get toggleSidebarButton(): Locator {
-        return this.page.getByTestId('toggle-sidebar-button');
+        return this.page.locator('[data-testid="toggle-sidebar-button"], [data-test="toggle-sidebar-button"]');
     }
 
     // ==================== Actions ====================

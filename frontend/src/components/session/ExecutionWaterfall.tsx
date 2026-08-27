@@ -41,7 +41,7 @@ export const ExecutionWaterfall: React.FC<ExecutionWaterfallProps> = ({
     const items: WaterfallToolItem[] = [];
 
     turns.forEach((turn, tIdx) => {
-      const turnIndex = turn.turn_index >= 0 ? turn.turn_index : tIdx;
+      const turnIndex = tIdx;
       const baseTime = turn.timestamp ? new Date(turn.timestamp).getTime() : 1000 + turnIndex * 1000;
       const turnBase = isNaN(baseTime) ? 1000 + turnIndex * 1000 : baseTime;
 
@@ -148,6 +148,7 @@ export const ExecutionWaterfall: React.FC<ExecutionWaterfallProps> = ({
   return (
     <div
       data-testid="execution-waterfall"
+      data-test="execution-waterfall"
       className="bg-[#11141a] border border-white/10 rounded-xl overflow-hidden shadow-xl"
     >
       {/* Header bar */}

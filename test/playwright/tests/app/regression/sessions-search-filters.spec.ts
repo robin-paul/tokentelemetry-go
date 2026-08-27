@@ -10,7 +10,8 @@ test.describe('Session Catalog Multi-Criteria Search and Filtering', () => {
         { tag: '@regression' },
         async ({ page, sessionsPage, transcriptFixture }) => {
             await test.step('GIVEN multiple distinct agent sessions exist in telemetry', async () => {
-                await transcriptFixture.writeCursorSession('project-alpha', 'cursor-search-session-101', [
+                const now = Date.now();
+                await transcriptFixture.writeCursorSession('project-alpha', `cursor-search-${now}`, [
                     {
                         role: 'assistant',
                         model: 'claude-3-5-sonnet',
@@ -19,7 +20,7 @@ test.describe('Session Catalog Multi-Criteria Search and Filtering', () => {
                     },
                 ]);
 
-                await transcriptFixture.writeOpenCodeSession('project-beta', 'opencode-search-session-202', [
+                await transcriptFixture.writeOpenCodeSession('project-beta', `opencode-search-${now}`, [
                     {
                         role: 'assistant',
                         model: 'claude-3-7-sonnet',
@@ -29,14 +30,14 @@ test.describe('Session Catalog Multi-Criteria Search and Filtering', () => {
                     },
                 ]);
 
-                await transcriptFixture.writeCopilotSession('project-gamma', 'copilot-search-session-303', [
-                    {
-                        role: 'assistant',
-                        model: 'gpt-4o',
-                        inputTokens: 4000,
-                        outputTokens: 800,
-                    },
-                ]);
+                await transcriptFixture.writeCopilotSession('project-gamma', `copilot-search-${now}`, {
+                    requests: [
+                        {
+                            modelId: 'gpt-4o',
+                            completionTokens: 800,
+                        },
+                    ],
+                });
             });
 
             await test.step('WHEN the user navigates to the Sessions catalog', async () => {

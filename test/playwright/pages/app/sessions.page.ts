@@ -106,10 +106,13 @@ export class SessionsPage {
     }
 
     getSessionRow(identifier: string): Locator {
-        return this.sessionRows.filter({ hasText: identifier });
+        return this.sessionRows.filter({ hasText: identifier }).first();
     }
 
     async clickSession(identifier: string): Promise<void> {
-        await this.getSessionRow(identifier).first().click();
+        await Promise.all([
+            this.page.waitForURL(/\/sessions\/.+/, { timeout: 10000 }).catch(() => {}),
+            this.getSessionRow(identifier).first().click(),
+        ]);
     }
 }

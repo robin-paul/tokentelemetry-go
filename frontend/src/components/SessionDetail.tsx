@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   ArrowLeft,
   Bot,
@@ -46,28 +46,38 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
 
   useEffect(() => {
     let id = propSessionId;
-    if ((!id || id === '[id]') && typeof window !== 'undefined') {
+    if ((!id || id === '[id]' || id.includes('[')) && typeof window !== 'undefined') {
       const parts = window.location.pathname.split('/').filter(Boolean);
       if (parts[0] === 'sessions' && parts[1]) {
         id = decodeURIComponent(parts[1]);
       }
     }
-    if (id && id !== '[id]') {
+    if (id && id !== '[id]' && !id.includes('[')) {
+      setLoading(true);
       apiFetch<Session>(`/api/sessions/${encodeURIComponent(id)}`)
         .then((data) => {
           setSession(data);
-          if (data.turns && data.turns.length > 0) {
+          if (data && data.turns && data.turns.length > 0) {
             const lastIdx = data.turns.length - 1;
             setActiveStep(lastIdx);
             setRevealedCount(data.turns.length);
           }
         })
-        .catch((e) => console.error('Failed to load session details', e))
+        .catch((e) => {
+          console.error('Failed to load session details', e);
+          setSession(null);
+        })
         .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
   }, [propSessionId]);
 
   const turns = session?.turns || [];
+
+  const allToolResults = useMemo(() => {
+    return turns.flatMap((t) => t.tool_results || []);
+  }, [turns]);
 
   // Cleanup animation frame and timers on unmount
   useEffect(() => {
@@ -197,10 +207,6 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
     tools: toolTurnsCount,
   };
 
-  const allToolResults = useMemo(() => {
-    return turns.flatMap((t) => t.tool_results || []);
-  }, [turns]);
-
   const filteredTurns = turns.filter((turn) => {
     // 1. Category Filter
     if (categoryFilter === 'user' && turn.role !== 'user') return false;
@@ -244,13 +250,15 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
               <span
+                data-testid="agent-badge"
+                data-test="agent-badge"
                 className="px-2.5 py-1 rounded text-xs font-semibold"
                 style={{ color: meta.color, backgroundColor: meta.bg }}
               >
                 {meta.label}
               </span>
               <div className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1 rounded-lg border border-white/5">
-                <h1 className="text-base font-bold text-white font-mono">{session.session_id}</h1>
+                <h1 data-testid="session-id-heading" data-test="session-id-heading" className="text-base font-bold text-white font-mono">{session.session_id}</h1>
                 <button
                   type="button"
                   onClick={handleCopyId}

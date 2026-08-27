@@ -101,7 +101,7 @@ export const ToolInvocationCard: React.FC<ToolInvocationCardProps> = ({
   const isLongOutput = outputLineCount > 12 || outputString.length > 800;
 
   return (
-    <div className="space-y-2 my-2.5" data-testid="tool-invocation-card">
+    <div className="space-y-2 my-2.5" data-testid="tool-invocation-card" data-test="tool-invocation-card">
       {/* Tool Call Card */}
       <div className="bg-white/[0.02] border border-white/10 rounded-xl p-3.5 hover:border-white/20 transition-all">
         <div className="flex items-center justify-between gap-2">
