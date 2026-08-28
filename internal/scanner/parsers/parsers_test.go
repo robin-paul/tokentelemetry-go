@@ -256,6 +256,140 @@ func TestDSHMetricsAbsentWithoutTimingData(t *testing.T) {
 	}
 }
 
+func TestDSHCapturesSandboxAndApprovalPosture(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"permission/preset","seq":1,"time":900,"data":{"preset":"workspace-write"}}
+{"type":"sandbox/mode","seq":2,"time":901,"data":{"mode":"workspace-write"}}
+{"type":"approval/policy","seq":3,"time":902,"data":{"policy":"ask"}}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil || sess.DSH.Sandbox == nil {
+		t.Fatalf("expected sandbox posture to be captured")
+	}
+
+	sb := sess.DSH.Sandbox
+	if sb["permission_preset"] != "workspace-write" {
+		t.Errorf("expected permission_preset workspace-write, got %v", sb["permission_preset"])
+	}
+	if sb["mode"] != "workspace-write" {
+		t.Errorf("expected mode workspace-write, got %v", sb["mode"])
+	}
+	if sb["approval"] != "ask" {
+		t.Errorf("expected approval ask, got %v", sb["approval"])
+	}
+	if sb["mode_source"] != "session" {
+		t.Errorf("expected mode_source session, got %v", sb["mode_source"])
+	}
+	if sb["approval_source"] != "session" {
+		t.Errorf("expected approval_source session, got %v", sb["approval_source"])
+	}
+}
+
+func TestDSHSubagentCarriesItsOwnInheritedPosture(t *testing.T) {
+	p := NewDSHParser()
+	childJsonl := `{"type":"session","id":"child-1","createdAt":1786806413737,"origin":"subagent","parentSession":"session-parent","delegationDepth":1}
+{"type":"sandbox/mode","seq":1,"time":950,"data":{"mode":"workspace-write","source":"delegation"}}
+{"type":"approval/policy","seq":2,"time":951,"data":{"policy":"never","source":"delegation"}}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":50,"outputTokens":10}}}}`
+
+	childSess, _, err := p.Parse(strings.NewReader(childJsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if !childSess.IsSubagent || childSess.ParentSessionID != "session-parent" {
+		t.Errorf("expected subagent with parent session-parent")
+	}
+	if childSess.DSH == nil || childSess.DSH.Sandbox == nil {
+		t.Fatalf("expected child sandbox posture")
+	}
+
+	sb := childSess.DSH.Sandbox
+	if sb["mode"] != "workspace-write" || sb["mode_source"] != "delegation" {
+		t.Errorf("expected mode workspace-write with source delegation, got %v / %v", sb["mode"], sb["mode_source"])
+	}
+	if sb["approval"] != "never" || sb["approval_source"] != "delegation" {
+		t.Errorf("expected approval never with source delegation, got %v / %v", sb["approval"], sb["approval_source"])
+	}
+}
+
+func TestDSHSandboxAbsentWhenLogRecordsNone(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil || sess.DSH.Sandbox == nil {
+		t.Fatalf("expected empty sandbox map")
+	}
+	if len(sess.DSH.Sandbox) != 0 {
+		t.Errorf("expected empty sandbox map, got %+v", sess.DSH.Sandbox)
+	}
+}
+
+func TestDSHEffectivePresetFollowsMidsessionSwitch(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"session","id":"sess-preset","agentPreset":"standard"}
+{"type":"agent-preset/selected","seq":3,"time":1100,"data":{"agentPreset":"cordis"}}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil {
+		t.Fatalf("expected DSH context")
+	}
+	if sess.DSH.AgentPreset != "cordis" {
+		t.Errorf("expected effective preset cordis, got %s", sess.DSH.AgentPreset)
+	}
+	if len(sess.DSH.PresetChain) != 2 || sess.DSH.PresetChain[0] != "standard" || sess.DSH.PresetChain[1] != "cordis" {
+		t.Errorf("expected preset chain [standard, cordis], got %v", sess.DSH.PresetChain)
+	}
+}
+
+func TestDSHPresetChainWithoutSwitchIsJustTheHeader(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"session","id":"sess-preset-noswitch","agentPreset":"standard"}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil {
+		t.Fatalf("expected DSH context")
+	}
+	if sess.DSH.AgentPreset != "standard" {
+		t.Errorf("expected preset standard, got %s", sess.DSH.AgentPreset)
+	}
+	if len(sess.DSH.PresetChain) != 1 || sess.DSH.PresetChain[0] != "standard" {
+		t.Errorf("expected preset chain [standard], got %v", sess.DSH.PresetChain)
+	}
+}
+
+func TestDSHSubagentForkIsTreatedAsASubagent(t *testing.T) {
+	p := NewDSHParser()
+	forkedJsonl := `{"type":"session","id":"forked-uuid","origin":"subagent","parentSession":"session-forkparent","delegationDepth":1}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":5,"outputTokens":1}}}}`
+
+	childSess, _, err := p.Parse(strings.NewReader(forkedJsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if !childSess.IsSubagent || childSess.ParentSessionID != "session-forkparent" {
+		t.Errorf("expected subagent with parentSession session-forkparent")
+	}
+	if childSess.SubagentType != "dsh-subagent" {
+		t.Errorf("expected subagent type dsh-subagent, got %s", childSess.SubagentType)
+	}
+}
+
 func TestCopilotParser(t *testing.T) {
 	p := NewCopilotParser()
 	if !p.Detect("/Users/dev/.copilot/session-state/sess1/events.jsonl") {

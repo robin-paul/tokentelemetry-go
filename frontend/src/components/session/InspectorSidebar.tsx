@@ -289,6 +289,44 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                   </div>
                 )}
 
+                {session.dsh?.agent_preset && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Agent Preset:</span>
+                    <span className="text-white font-medium truncate max-w-[200px]" title={session.dsh.agent_preset}>
+                      {(session.dsh.preset_chain?.length ?? 0) > 1
+                        ? `${session.dsh.preset_chain.join(' → ')} (switched mid-session)`
+                        : session.dsh.agent_preset}
+                    </span>
+                  </div>
+                )}
+
+                {session.dsh?.sandbox?.mode && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">File Sandbox:</span>
+                    <span className="text-white font-medium">
+                      {String(session.dsh.sandbox.mode) + (session.dsh.sandbox.mode_source === 'delegation' ? ' (inherited)' : '')}
+                    </span>
+                  </div>
+                )}
+
+                {session.dsh?.sandbox?.approval && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Approval Policy:</span>
+                    <span className={`font-medium ${session.dsh.sandbox.approval === 'never' ? 'text-amber-400 font-bold' : 'text-white'}`}>
+                      {String(session.dsh.sandbox.approval) + (session.dsh.sandbox.approval_source === 'delegation' ? ' (inherited)' : '')}
+                    </span>
+                  </div>
+                )}
+
+                {session.dsh?.sandbox?.permission_preset && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400">Permission Preset:</span>
+                    <span className="text-white font-medium">
+                      {String(session.dsh.sandbox.permission_preset)}
+                    </span>
+                  </div>
+                )}
+
                 {session.machine_id && (
                   <div className="flex items-center justify-between">
                     <span className="text-gray-400">Machine:</span>
@@ -390,16 +428,29 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                   {session.subagent_runs.map((sub) => (
                     <div
                       key={sub.id}
-                      className="p-2 rounded-lg bg-black/40 border border-white/5 flex items-center justify-between font-mono text-[11px]"
+                      className="p-2 rounded-lg bg-black/40 border border-white/5 flex flex-col gap-1 font-mono text-[11px]"
                     >
-                      <div>
-                        <div className="text-white font-semibold">{sub.agent_type}</div>
-                        <div className="text-[10px] text-gray-500">{sub.child_session_id.slice(0, 16)}...</div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-semibold">{sub.agent_type}</div>
+                          <div className="text-[10px] text-gray-500">{sub.child_session_id.slice(0, 16)}...</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-emerald-400 font-bold">{formatCost(sub.cost_usd)}</div>
+                          <div className="text-[10px] text-gray-400">{formatTokens(sub.tokens)} tok</div>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-emerald-400 font-bold">{formatCost(sub.cost_usd)}</div>
-                        <div className="text-[10px] text-gray-400">{formatTokens(sub.tokens)} tok</div>
-                      </div>
+
+                      {/* Inherited subagent sandbox & approval posture */}
+                      {sub.sandbox?.approval && (
+                        <div className="text-[10px] text-gray-400 pt-1 border-t border-white/5" title="File-sandbox mode and approval policy this subagent ran under">
+                          <span>sandbox {sub.sandbox.mode || '?'} · approval </span>
+                          <span className={sub.sandbox.approval === 'never' ? 'text-amber-400 font-semibold' : 'text-gray-300'}>
+                            {sub.sandbox.approval}
+                          </span>
+                          {sub.sandbox.approval_source === 'delegation' && <span className="text-gray-500"> (inherited)</span>}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

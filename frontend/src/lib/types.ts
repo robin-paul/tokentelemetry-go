@@ -71,6 +71,13 @@ export interface SubagentRun {
   tokens: number;
   cost_usd: number;
   created_at: string;
+  sandbox?: {
+    mode?: string;
+    mode_source?: string;
+    approval?: string;
+    approval_source?: string;
+    permission_preset?: string;
+  };
 }
 
 export interface DSHMetrics {

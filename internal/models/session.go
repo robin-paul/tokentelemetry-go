@@ -53,13 +53,14 @@ type MessageTurn struct {
 
 // SubagentRun represents a subagent session spawned by a parent orchestrator.
 type SubagentRun struct {
-	ID              string    `json:"id"`
-	ParentSessionID string    `json:"parent_session_id"`
-	ChildSessionID  string    `json:"child_session_id"`
-	AgentType       string    `json:"agent_type"`
-	Tokens          int64     `json:"tokens"`
-	CostUSD         float64   `json:"cost_usd"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              string                 `json:"id"`
+	ParentSessionID string                 `json:"parent_session_id"`
+	ChildSessionID  string                 `json:"child_session_id"`
+	AgentType       string                 `json:"agent_type"`
+	Tokens          int64                  `json:"tokens"`
+	CostUSD         float64                `json:"cost_usd"`
+	CreatedAt       time.Time              `json:"created_at"`
+	Sandbox         map[string]interface{} `json:"sandbox,omitempty"`
 }
 
 // DSHMetrics holds latency and throughput breakdown derived from DSH transcripts.

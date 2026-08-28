@@ -42,6 +42,8 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 	stepFirstChunk := make(map[string]int64)
 	stepFinish := make(map[string]int64)
 	toolCallAt := make(map[string]int64)
+	sandbox := make(map[string]interface{})
+	var presetChain []string
 
 	var toolMsTotal int64
 	var turnsCount, stepsCount int
@@ -56,15 +58,21 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			Time          int64  `json:"time"`
 			Origin        string `json:"origin"`
 			ParentSession string `json:"parentSession"`
+			AgentPreset   string `json:"agentPreset"`
 			Data          struct {
-				Turn      int    `json:"turn"`
-				Step      int    `json:"step"`
-				Provider  string `json:"provider"`
-				Model     string `json:"model"`
-				CallID    string `json:"callId"`
-				Name      string `json:"name"`
-				Arguments string `json:"arguments"`
-				Chunk     *struct {
+				Turn        int    `json:"turn"`
+				Step        int    `json:"step"`
+				Provider    string `json:"provider"`
+				Model       string `json:"model"`
+				CallID      string `json:"callId"`
+				Name        string `json:"name"`
+				Arguments   string `json:"arguments"`
+				Mode        string `json:"mode"`
+				Policy      string `json:"policy"`
+				Preset      string `json:"preset"`
+				AgentPreset string `json:"agentPreset"`
+				Source      string `json:"source"`
+				Chunk       *struct {
 					Type  string `json:"type"`
 					Usage *struct {
 						InputTokens     int64 `json:"inputTokens"`
@@ -117,6 +125,10 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			if event.Origin == "subagent" || event.ParentSession != "" {
 				session.IsSubagent = true
 				session.ParentSessionID = event.ParentSession
+				session.SubagentType = "dsh-subagent"
+			}
+			if event.AgentPreset != "" {
+				presetChain = append(presetChain, event.AgentPreset)
 			}
 		}
 
@@ -124,6 +136,41 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			session.Model = event.Data.Model
 			if event.Data.Provider != "" {
 				session.Provider = event.Data.Provider
+			}
+		}
+
+		if event.Type == "agent-preset/selected" {
+			preset := event.Data.AgentPreset
+			if preset != "" && (len(presetChain) == 0 || presetChain[len(presetChain)-1] != preset) {
+				presetChain = append(presetChain, preset)
+			}
+		}
+
+		if event.Type == "sandbox/mode" {
+			if event.Data.Mode != "" {
+				sandbox["mode"] = event.Data.Mode
+				if event.Data.Source != "" {
+					sandbox["mode_source"] = event.Data.Source
+				} else {
+					sandbox["mode_source"] = "session"
+				}
+			}
+		}
+
+		if event.Type == "approval/policy" {
+			if event.Data.Policy != "" {
+				sandbox["approval"] = event.Data.Policy
+				if event.Data.Source != "" {
+					sandbox["approval_source"] = event.Data.Source
+				} else {
+					sandbox["approval_source"] = "session"
+				}
+			}
+		}
+
+		if event.Type == "permission/preset" {
+			if event.Data.Preset != "" {
+				sandbox["permission_preset"] = event.Data.Preset
 			}
 		}
 
@@ -310,6 +357,11 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 		cacheHitPct = &pct
 	}
 
+	var effectivePreset string
+	if len(presetChain) > 0 {
+		effectivePreset = presetChain[len(presetChain)-1]
+	}
+
 	session.DSH = &models.DSHContext{
 		Metrics: &models.DSHMetrics{
 			Turns:           turnsCount,
@@ -320,6 +372,9 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			OutputTokPerSec: outputTokPerSec,
 			CacheHitPct:     cacheHitPct,
 		},
+		AgentPreset: effectivePreset,
+		PresetChain: presetChain,
+		Sandbox:     sandbox,
 	}
 
 	return session, endOffset, nil
