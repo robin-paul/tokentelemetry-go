@@ -388,4 +388,118 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
             });
         }
     );
+
+    test(
+        'should stagger mixed turns sequentially in split timeline mode with presentation toggle',
+        { tag: '@regression' },
+        async ({ sessionsPage, sessionDetailPage, transcriptFixture, page }) => {
+            const projectName = 'e2e-staggered-timeline-project';
+            const sessionId = `claude-stagger-${Date.now()}`;
+
+            await test.step('GIVEN a session with user prompt, a mixed turn with thinking/tools/response, and a dialogue-only turn', async () => {
+                const now = Date.now();
+                const rawTranscript = [
+                    JSON.stringify({
+                        type: 'user',
+                        sessionId: sessionId,
+                        timestamp: new Date(now - 15000).toISOString(),
+                        message: {
+                            content: [{ type: 'text', text: 'Step 1: Check system health and summarize.' }],
+                        },
+                    }),
+                    JSON.stringify({
+                        type: 'assistant',
+                        sessionId: sessionId,
+                        timestamp: new Date(now - 10000).toISOString(),
+                        message: {
+                            model: 'claude-3-7-sonnet',
+                            usage: { input_tokens: 1800, output_tokens: 600 },
+                            content: [
+                                {
+                                    type: 'thinking',
+                                    thinking: 'Let me run diagnostic health checks first.',
+                                },
+                                {
+                                    type: 'tool_use',
+                                    id: 'tool_health_check_1',
+                                    name: 'ping_server',
+                                    input: { target: 'localhost' },
+                                },
+                                {
+                                    type: 'text',
+                                    text: 'Diagnostic check complete. All services are healthy.',
+                                },
+                            ],
+                        },
+                    }),
+                    JSON.stringify({
+                        type: 'assistant',
+                        sessionId: sessionId,
+                        timestamp: new Date(now - 5000).toISOString(),
+                        message: {
+                            model: 'claude-3-7-sonnet',
+                            usage: { input_tokens: 800, output_tokens: 200 },
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Ready for next instructions.',
+                                },
+                            ],
+                        },
+                    }),
+                ].join('\n');
+
+                await transcriptFixture.writeRawTranscript(
+                    `.claude/projects/${projectName}/${sessionId}.jsonl`,
+                    rawTranscript
+                );
+            });
+
+            await test.step('WHEN the user opens the session in the Session Inspector and toggles Split View', async () => {
+                await sessionsPage.open();
+                await expect(sessionsPage.sessionTable).toBeVisible();
+
+                await sessionsPage.search(projectName);
+                const sessionRow = sessionsPage.getSessionRow(projectName).first();
+                await expect(sessionRow).toBeVisible();
+                await sessionRow.click();
+                await page.waitForURL(/\/sessions\/.+/);
+
+                await expect(sessionDetailPage.sessionIdHeading).toBeVisible();
+                await sessionDetailPage.toggleSplitViewButton.click();
+                await expect(sessionDetailPage.splitViewContainer).toBeVisible();
+            });
+
+            await test.step('AND toggles Sequential Staggering Flow on', async () => {
+                await expect(sessionDetailPage.toggleStaggerViewButton).toBeVisible();
+                await expect(sessionDetailPage.toggleStaggerViewButton).toContainText(/Sequential Flow/i);
+                await sessionDetailPage.toggleStaggerViewButton.click();
+                await expect(sessionDetailPage.toggleStaggerViewButton).toContainText(/Parallel Columns/i);
+                await expect(sessionDetailPage.staggeredViewContainer).toBeVisible();
+            });
+
+            await test.step('THEN mixed turns are staggered sequentially (Brain row first, Dialogue response follows)', async () => {
+                // Should have staggered brain and dialogue rows
+                await expect(sessionDetailPage.staggeredBrainRows).toHaveCount(1);
+                await expect(sessionDetailPage.staggeredDialogueRows).toHaveCount(3); // User turn + mixed response + dialogue-only turn
+
+                // Verify Brain card contains reasoning & tools
+                const brainRow = sessionDetailPage.staggeredBrainRows.first();
+                await expect(brainRow.getByText('Let me run diagnostic health checks first')).toBeVisible();
+                await expect(brainRow.getByText('ping_server')).toBeVisible();
+                await expect(brainRow.getByText('Diagnostic check complete')).not.toBeVisible();
+
+                // Verify Dialogue response contains the text
+                await expect(sessionDetailPage.staggeredViewContainer.getByText('Diagnostic check complete. All services are healthy.')).toBeVisible();
+                await expect(sessionDetailPage.staggeredViewContainer.getByText('Ready for next instructions.')).toBeVisible();
+            });
+
+            await test.step('WHEN toggling back to Parallel Columns mode', async () => {
+                await sessionDetailPage.toggleStaggerViewButton.click();
+                await expect(sessionDetailPage.toggleStaggerViewButton).toContainText(/Sequential Flow/i);
+                await expect(sessionDetailPage.dialogueColumn).toBeVisible();
+                await expect(sessionDetailPage.brainColumn).toBeVisible();
+            });
+        }
+    );
 });

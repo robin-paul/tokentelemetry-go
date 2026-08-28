@@ -165,8 +165,24 @@ export class SessionDetailPage {
         return this.page.locator('[data-testid="toggle-split-view-button"], [data-test="toggle-split-view-button"]');
     }
 
+    get toggleStaggerViewButton(): Locator {
+        return this.page.locator('[data-testid="toggle-stagger-view-button"], [data-test="toggle-stagger-view-button"]');
+    }
+
     get splitViewContainer(): Locator {
         return this.page.locator('[data-testid="split-view-container"], [data-test="split-view-container"]');
+    }
+
+    get staggeredViewContainer(): Locator {
+        return this.page.locator('[data-testid="staggered-view-container"], [data-test="staggered-view-container"]');
+    }
+
+    get staggeredBrainRows(): Locator {
+        return this.page.locator('[data-testid="staggered-brain-row"], [data-test="staggered-brain-row"]');
+    }
+
+    get staggeredDialogueRows(): Locator {
+        return this.page.locator('[data-testid="staggered-dialogue-row"], [data-test="staggered-dialogue-row"]');
     }
 
     get dialogueColumn(): Locator {

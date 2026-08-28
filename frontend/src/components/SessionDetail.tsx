@@ -11,6 +11,7 @@ import {
   Check,
   PanelRight,
   Columns2,
+  Clock,
   User,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
@@ -38,6 +39,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [splitView, setSplitView] = useState<boolean>(false);
+  const [isStaggered, setIsStaggered] = useState<boolean>(false);
   const [categoryFilter, setCategoryFilter] = useState<TurnFilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(false);
@@ -299,6 +301,22 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
               <Columns2 className="w-3.5 h-3.5 text-cyan-400" />
               <span>{splitView ? 'Unified View' : 'Split View'}</span>
             </button>
+            {splitView && (
+              <button
+                type="button"
+                data-testid="toggle-stagger-view-button"
+                data-test="toggle-stagger-view-button"
+                onClick={() => setIsStaggered(!isStaggered)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                  isStaggered
+                    ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 hover:bg-purple-500/30'
+                    : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 text-purple-400" />
+                <span>{isStaggered ? 'Parallel Columns' : 'Sequential Flow'}</span>
+              </button>
+            )}
             <button
               type="button"
               data-testid="toggle-sidebar-button"
@@ -458,69 +476,14 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                 </div>
               </div>
 
-              {/* Dual Columns */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative items-start">
-                {/* Left: Dialogue Column */}
-                <div data-testid="dialogue-column" data-test="dialogue-column" className="space-y-4">
+              {isStaggered ? (
+                /* Sequential Staggered Timeline Flow */
+                <div data-testid="staggered-view-container" data-test="staggered-view-container" className="space-y-4">
                   {filteredTurns.map((turn, index) => {
                     const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
                     const isUser = turn.role === 'user';
                     const isActive = originalIndex === activeStep;
-
-                    if (isUser) {
-                      return (
-                        <div
-                          key={turn.id || `dialogue-${originalIndex}`}
-                          ref={(el) => {
-                            turnRefs.current[originalIndex] = el;
-                          }}
-                        >
-                          <UserTurnCard
-                            turn={turn}
-                            turnNumber={originalIndex + 1}
-                            isActive={isActive}
-                            searchQuery={searchQuery}
-                            onClick={() => handleStepSeek(originalIndex)}
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (turn.content && turn.content.trim().length > 0) {
-                      return (
-                        <div
-                          key={turn.id || `dialogue-${originalIndex}`}
-                          ref={(el) => {
-                            turnRefs.current[originalIndex] = el;
-                          }}
-                        >
-                          <AssistantTurnCard
-                            turn={turn}
-                            turnNumber={originalIndex + 1}
-                            agentName={session.agent_name}
-                            isActive={isActive}
-                            searchQuery={searchQuery}
-                            allToolResults={allToolResults}
-                            mode="dialogue"
-                            onClick={() => handleStepSeek(originalIndex)}
-                          />
-                        </div>
-                      );
-                    }
-
-                    return null;
-                  })}
-                </div>
-
-                {/* Right: Brain Column */}
-                <div
-                  data-testid="brain-column"
-                  data-test="brain-column"
-                  className="space-y-4 border-t md:border-t-0 md:border-l border-white/10 md:pl-6"
-                >
-                  {filteredTurns.map((turn, index) => {
-                    const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
-                    const isActive = originalIndex === activeStep;
+                    const hasDialogue = isUser || Boolean(turn.content && turn.content.trim().length > 0);
 
                     const hasThinking = Boolean(turn.thinking && turn.thinking.trim().length > 0);
                     const hasReasoningEffort = Boolean(turn.reasoning_effort && turn.reasoning_effort.trim().length > 0);
@@ -534,27 +497,141 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                         }
                       } catch {}
                     }
+                    const hasBrain = !isUser && (hasThinking || hasReasoningEffort || hasToolCalls || hasLegacyTools);
 
-                    if (turn.role !== 'user' && (hasThinking || hasReasoningEffort || hasToolCalls || hasLegacyTools)) {
+                    // Stagger mixed turns: Brain first on the right, Dialogue response follows on the left
+                    if (hasBrain && hasDialogue) {
+                      return (
+                        <div key={turn.id || `mixed-${originalIndex}`} className="space-y-4">
+                          {/* 1. Reasoning & Tools first on the right */}
+                          <div
+                            data-testid="staggered-brain-row"
+                            data-test="staggered-brain-row"
+                            className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"
+                          >
+                            <div className="hidden md:block" />
+                            <div>
+                              <AssistantTurnCard
+                                turn={turn}
+                                turnNumber={originalIndex + 1}
+                                agentName={session.agent_name}
+                                isActive={isActive}
+                                searchQuery={searchQuery}
+                                allToolResults={allToolResults}
+                                mode="brain"
+                                onClick={() => handleStepSeek(originalIndex)}
+                              />
+                            </div>
+                          </div>
+
+                          {/* 2. Final response follows on the left */}
+                          <div
+                            data-testid="staggered-dialogue-row"
+                            data-test="staggered-dialogue-row"
+                            className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"
+                          >
+                            <div
+                              ref={(el) => {
+                                turnRefs.current[originalIndex] = el;
+                              }}
+                            >
+                              <AssistantTurnCard
+                                turn={turn}
+                                turnNumber={originalIndex + 1}
+                                agentName={session.agent_name}
+                                isActive={isActive}
+                                searchQuery={searchQuery}
+                                allToolResults={allToolResults}
+                                mode="dialogue"
+                                onClick={() => handleStepSeek(originalIndex)}
+                              />
+                            </div>
+                            <div className="hidden md:block" />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (isUser) {
+                      return (
+                        <div
+                          key={turn.id || `user-${originalIndex}`}
+                          data-testid="staggered-dialogue-row"
+                          data-test="staggered-dialogue-row"
+                          className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"
+                        >
+                          <div
+                            ref={(el) => {
+                              turnRefs.current[originalIndex] = el;
+                            }}
+                          >
+                            <UserTurnCard
+                              turn={turn}
+                              turnNumber={originalIndex + 1}
+                              isActive={isActive}
+                              searchQuery={searchQuery}
+                              onClick={() => handleStepSeek(originalIndex)}
+                            />
+                          </div>
+                          <div className="hidden md:block" />
+                        </div>
+                      );
+                    }
+
+                    if (hasDialogue) {
+                      return (
+                        <div
+                          key={turn.id || `dialogue-${originalIndex}`}
+                          data-testid="staggered-dialogue-row"
+                          data-test="staggered-dialogue-row"
+                          className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"
+                        >
+                          <div
+                            ref={(el) => {
+                              turnRefs.current[originalIndex] = el;
+                            }}
+                          >
+                            <AssistantTurnCard
+                              turn={turn}
+                              turnNumber={originalIndex + 1}
+                              agentName={session.agent_name}
+                              isActive={isActive}
+                              searchQuery={searchQuery}
+                              allToolResults={allToolResults}
+                              mode="dialogue"
+                              onClick={() => handleStepSeek(originalIndex)}
+                            />
+                          </div>
+                          <div className="hidden md:block" />
+                        </div>
+                      );
+                    }
+
+                    if (hasBrain) {
                       return (
                         <div
                           key={turn.id || `brain-${originalIndex}`}
-                          ref={(el) => {
-                            if (!turn.content) {
-                              turnRefs.current[originalIndex] = el;
-                            }
-                          }}
+                          data-testid="staggered-brain-row"
+                          data-test="staggered-brain-row"
+                          className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"
                         >
-                          <AssistantTurnCard
-                            turn={turn}
-                            turnNumber={originalIndex + 1}
-                            agentName={session.agent_name}
-                            isActive={isActive}
-                            searchQuery={searchQuery}
-                            allToolResults={allToolResults}
-                            mode="brain"
-                            onClick={() => handleStepSeek(originalIndex)}
-                          />
+                          <div className="hidden md:block" />
+                          <div
+                            ref={(el) => {
+                              turnRefs.current[originalIndex] = el;
+                            }}
+                          >
+                            <AssistantTurnCard
+                              turn={turn}
+                              turnNumber={originalIndex + 1}
+                              agentName={session.agent_name}
+                              isActive={isActive}
+                              searchQuery={searchQuery}
+                              allToolResults={allToolResults}
+                              mode="brain"
+                              onClick={() => handleStepSeek(originalIndex)}
+                            />
+                          </div>
                         </div>
                       );
                     }
@@ -562,7 +639,113 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                     return null;
                   })}
                 </div>
-              </div>
+              ) : (
+                /* Parallel Columns */
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative items-start">
+                  {/* Left: Dialogue Column */}
+                  <div data-testid="dialogue-column" data-test="dialogue-column" className="space-y-4">
+                    {filteredTurns.map((turn, index) => {
+                      const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
+                      const isUser = turn.role === 'user';
+                      const isActive = originalIndex === activeStep;
+
+                      if (isUser) {
+                        return (
+                          <div
+                            key={turn.id || `dialogue-${originalIndex}`}
+                            ref={(el) => {
+                              turnRefs.current[originalIndex] = el;
+                            }}
+                          >
+                            <UserTurnCard
+                              turn={turn}
+                              turnNumber={originalIndex + 1}
+                              isActive={isActive}
+                              searchQuery={searchQuery}
+                              onClick={() => handleStepSeek(originalIndex)}
+                            />
+                          </div>
+                        );
+                      }
+
+                      if (turn.content && turn.content.trim().length > 0) {
+                        return (
+                          <div
+                            key={turn.id || `dialogue-${originalIndex}`}
+                            ref={(el) => {
+                              turnRefs.current[originalIndex] = el;
+                            }}
+                          >
+                            <AssistantTurnCard
+                              turn={turn}
+                              turnNumber={originalIndex + 1}
+                              agentName={session.agent_name}
+                              isActive={isActive}
+                              searchQuery={searchQuery}
+                              allToolResults={allToolResults}
+                              mode="dialogue"
+                              onClick={() => handleStepSeek(originalIndex)}
+                            />
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    })}
+                  </div>
+
+                  {/* Right: Brain Column */}
+                  <div
+                    data-testid="brain-column"
+                    data-test="brain-column"
+                    className="space-y-4 border-t md:border-t-0 md:border-l border-white/10 md:pl-6"
+                  >
+                    {filteredTurns.map((turn, index) => {
+                      const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
+                      const isActive = originalIndex === activeStep;
+
+                      const hasThinking = Boolean(turn.thinking && turn.thinking.trim().length > 0);
+                      const hasReasoningEffort = Boolean(turn.reasoning_effort && turn.reasoning_effort.trim().length > 0);
+                      const hasToolCalls = Boolean(turn.tool_calls && turn.tool_calls.length > 0);
+                      let hasLegacyTools = Boolean(turn.tools_invoked && turn.tools_invoked.length > 0);
+                      if (!hasLegacyTools && turn.tools_invoked_json) {
+                        try {
+                          const parsed = JSON.parse(turn.tools_invoked_json);
+                          if (Array.isArray(parsed) && parsed.length > 0) {
+                            hasLegacyTools = true;
+                          }
+                        } catch {}
+                      }
+
+                      if (turn.role !== 'user' && (hasThinking || hasReasoningEffort || hasToolCalls || hasLegacyTools)) {
+                        return (
+                          <div
+                            key={turn.id || `brain-${originalIndex}`}
+                            ref={(el) => {
+                              if (!turn.content) {
+                                turnRefs.current[originalIndex] = el;
+                              }
+                            }}
+                          >
+                            <AssistantTurnCard
+                              turn={turn}
+                              turnNumber={originalIndex + 1}
+                              agentName={session.agent_name}
+                              isActive={isActive}
+                              searchQuery={searchQuery}
+                              allToolResults={allToolResults}
+                              mode="brain"
+                              onClick={() => handleStepSeek(originalIndex)}
+                            />
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div data-testid="unified-column" data-test="unified-column" className="space-y-4">
