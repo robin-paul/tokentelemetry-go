@@ -90,7 +90,7 @@ func (r *Resolver) Resolve(modelName, provider string, overrides []models.Pricin
 
 	// 4. Curated Fuzzy Longest-Key match (e.g., claude-3-7-sonnet-20250219 -> claude-3-7-sonnet)
 	for _, k := range r.Dataset.sortedCuratedKeys {
-		if strings.Contains(mNorm, k) || strings.HasPrefix(mNorm, k) {
+		if FuzzyKeyMatches(k, mNorm) {
 			if rate, found := r.Dataset.curated[k]; found {
 				return rate, k
 			}
@@ -104,7 +104,7 @@ func (r *Resolver) Resolve(modelName, provider string, overrides []models.Pricin
 
 	// 6. Bundled Fuzzy Longest-Key match
 	for _, k := range r.Dataset.sortedBundledKeys {
-		if strings.Contains(mNorm, k) || strings.HasPrefix(mNorm, k) {
+		if FuzzyKeyMatches(k, mNorm) {
 			if rate, found := r.Dataset.bundled[k]; found {
 				return rate, k
 			}
@@ -117,4 +117,18 @@ func (r *Resolver) Resolve(modelName, provider string, overrides []models.Pricin
 	}
 
 	return curatedModels["_default"], "_default"
+}
+
+// FuzzyKeyMatches performs substring matching while rejecting shorter dotted version prefixes.
+// e.g. "grok-4" must not match "grok-4.6" (which would bill at grok-4 rates), but "grok-4" matches "grok-4-fast".
+func FuzzyKeyMatches(key, model string) bool {
+	idx := strings.Index(model, key)
+	if idx < 0 {
+		return false
+	}
+	after := model[idx+len(key):]
+	if len(after) >= 2 && after[0] == '.' && (after[1] >= '0' && after[1] <= '9') {
+		return false
+	}
+	return true
 }

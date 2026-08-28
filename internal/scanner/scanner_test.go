@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -140,3 +141,88 @@ func TestScannerEndToEnd(t *testing.T) {
 		t.Errorf("expected 2 saved turns, got %d", len(saved.Turns))
 	}
 }
+
+func TestScannerGrokBilledUsageAndTieredCost(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	pe, err := pricing.NewEngine()
+	if err != nil {
+		t.Fatalf("failed to initialize pricing engine: %v", err)
+	}
+
+	engine := NewEngine(db, pe, Config{
+		WorkerPoolSize: 2,
+		BatchTimeout:   20 * time.Millisecond,
+		BatchSize:      10,
+	})
+
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	sid := "01a0test-0000-0000-0000-000000000001"
+
+	grokRoot := filepath.Join(tmpDir, ".grok")
+	sessDir := filepath.Join(grokRoot, "sessions", "%2Ftmp%2Fx", sid)
+	logsDir := filepath.Join(grokRoot, "logs")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatalf("failed to create sess dir: %v", err)
+	}
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		t.Fatalf("failed to create logs dir: %v", err)
+	}
+
+	summaryPath := filepath.Join(sessDir, "summary.json")
+	summaryDoc := `{"created_at":"2026-08-21T00:00:00Z","updated_at":"2026-08-21T00:01:00Z","generated_title":"sess 01a0test","current_model_id":"grok-4.6","info":{"cwd":"/tmp/x"}}`
+	if err := os.WriteFile(summaryPath, []byte(summaryDoc), 0644); err != nil {
+		t.Fatalf("failed to write summary: %v", err)
+	}
+
+	signalsPath := filepath.Join(sessDir, "signals.json")
+	signalsDoc := `{"contextTokensUsed":9999,"toolsUsed":["read_file"],"modelsUsed":["grok-4.6"]}`
+	if err := os.WriteFile(signalsPath, []byte(signalsDoc), 0644); err != nil {
+		t.Fatalf("failed to write signals: %v", err)
+	}
+
+	logPath := filepath.Join(logsDir, "unified.jsonl")
+	logDoc := `{"msg":"shell.turn.inference_done","sid":"` + sid + `","ctx":{"prompt_tokens":100,"cached_prompt_tokens":20,"completion_tokens":10}}
+{"msg":"shell.turn.inference_done","sid":"` + sid + `","ctx":{"prompt_tokens":250000,"cached_prompt_tokens":200000,"completion_tokens":50}}
+`
+	if err := os.WriteFile(logPath, []byte(logDoc), 0644); err != nil {
+		t.Fatalf("failed to write unified log: %v", err)
+	}
+
+	sess, err := engine.ScanFile(ctx, summaryPath)
+	if err != nil {
+		t.Fatalf("ScanFile failed: %v", err)
+	}
+	if sess == nil {
+		t.Fatalf("expected non-nil session")
+	}
+
+	// Turn 1: 80 uncached, 20 cached, 10 completion (<200k)
+	// Turn 2: 50,000 uncached, 200,000 cached, 50 completion (>=200k, 2x cliff)
+	// Total: input=50080, cached=200020, output=60
+	if sess.InputTokens != 50080 {
+		t.Errorf("expected input tokens 50080, got %d", sess.InputTokens)
+	}
+	if sess.CacheReadTokens != 200020 {
+		t.Errorf("expected cached tokens 200020, got %d", sess.CacheReadTokens)
+	}
+	if sess.OutputTokens != 60 {
+		t.Errorf("expected output tokens 60, got %d", sess.OutputTokens)
+	}
+	if sess.InputTokens == 9999 {
+		t.Errorf("must not use context footprint 9999 when log is present")
+	}
+
+	// Cost verification:
+	// Turn 1: 80/1M*$2 + 10/1M*$6 + 20/1M*$0.50 = 0.000160 + 0.000060 + 0.000010 = 0.000230
+	// Turn 2: (50000/1M*$2 + 50/1M*$6 + 200000/1M*$0.50) * 2 = (0.10 + 0.0003 + 0.10) * 2 = 0.2003 * 2 = 0.400600
+	// Total: 0.000230 + 0.400600 = 0.400830
+	expectedCost := 0.400830
+	if math.Abs(sess.NetCostUSD-expectedCost) > 1e-4 {
+		t.Errorf("expected net cost %.6f, got %.6f", expectedCost, sess.NetCostUSD)
+	}
+}
+

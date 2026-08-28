@@ -225,3 +225,69 @@ func TestCostSession(t *testing.T) {
 		t.Errorf("expected net cost to match electricity cost for local session")
 	}
 }
+
+func TestGrokListRates(t *testing.T) {
+	ds, err := pricing.LoadEmbeddedDataset()
+	if err != nil {
+		t.Fatalf("failed to load dataset: %v", err)
+	}
+	resolver := pricing.NewResolver(ds)
+
+	rate46, res46 := resolver.Resolve("grok-4.6", "", nil)
+	if res46 != "grok-4.6" || rate46.InputCostPerM != 2.00 || rate46.OutputCostPerM != 6.00 || rate46.CacheReadCostPerM != 0.50 {
+		t.Errorf("unexpected grok-4.6 rate: %+v, resolved=%s", rate46, res46)
+	}
+
+	rate45, res45 := resolver.Resolve("grok-4.5", "", nil)
+	if res45 != "grok-4.5" || rate45.InputCostPerM != 2.00 || rate45.OutputCostPerM != 6.00 || rate45.CacheReadCostPerM != 0.30 {
+		t.Errorf("unexpected grok-4.5 rate: %+v, resolved=%s", rate45, res45)
+	}
+
+	rate43, res43 := resolver.Resolve("grok-4.3", "", nil)
+	if res43 != "grok-4.3" || rate43.InputCostPerM != 1.25 || rate43.OutputCostPerM != 2.50 || rate43.CacheReadCostPerM != 0.20 {
+		t.Errorf("unexpected grok-4.3 rate: %+v, resolved=%s", rate43, res43)
+	}
+}
+
+func TestGrokNotFuzzyMatchedToGrok4(t *testing.T) {
+	ds, err := pricing.LoadEmbeddedDataset()
+	if err != nil {
+		t.Fatalf("failed to load dataset: %v", err)
+	}
+	resolver := pricing.NewResolver(ds)
+
+	// A model we have no exact row for, whose name starts with grok-4.X, must
+	// not inherit grok-4's $3/$15 just because "grok-4" is a substring.
+	rate, resolved := resolver.Resolve("grok-4.9-hypothetical", "", nil)
+	if resolved == "grok-4" || (rate.InputCostPerM == 3.00 && rate.OutputCostPerM == 15.00) {
+		t.Errorf("grok-4.9-hypothetical should not match grok-4: %+v, resolved=%s", rate, resolved)
+	}
+}
+
+func TestXAITurnCostShortVsLong(t *testing.T) {
+	rate := models.ModelRate{
+		ModelPattern:      "grok-4.6",
+		InputCostPerM:     2.00,
+		OutputCostPerM:    6.00,
+		CacheReadCostPerM: 0.50,
+	}
+
+	// short: prompt = 100,000, completion = 1,000, cached = 10,000
+	// 90k uncached * $2 + 1k * $6 + 10k * $0.50 = 0.18 + 0.006 + 0.005 = 0.191
+	short := pricing.CalculateXAITurnCost(rate, 100_000, 1_000, 10_000)
+	if !almostEqual(short, 0.191, 1e-4) {
+		t.Errorf("expected short turn cost 0.191, got %.6f", short)
+	}
+
+	// long: prompt = 200,000, completion = 1,000, cached = 10,000
+	// Same cached/output, 190k uncached: (190k * $2 + 1k * $6 + 10k * $0.50) * 2 = 0.391 * 2 = 0.782
+	long := pricing.CalculateXAITurnCost(rate, 200_000, 1_000, 10_000)
+	if !almostEqual(long, 0.782, 1e-4) {
+		t.Errorf("expected long turn cost 0.782, got %.6f", long)
+	}
+
+	if long <= short*2 {
+		t.Errorf("expected long turn cost (%.4f) to be > short*2 (%.4f)", long, short*2)
+	}
+}
+

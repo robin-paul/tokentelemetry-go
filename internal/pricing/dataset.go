@@ -85,7 +85,11 @@ var curatedModels = map[string]models.ModelRate{
 	"deepseek-v4-pro":   {ModelPattern: "deepseek-v4-pro", InputCostPerM: 1.74, OutputCostPerM: 3.48, CacheReadCostPerM: 0.0145, Source: "curated"},
 
 	// Grok
-	"grok-4.3":          {ModelPattern: "grok-4.3", InputCostPerM: 1.25, OutputCostPerM: 2.50, Source: "curated"},
+	"grok-4.6":          {ModelPattern: "grok-4.6", InputCostPerM: 2.00, OutputCostPerM: 6.00, CacheReadCostPerM: 0.50, Source: "curated"},
+	"grok-4.6-latest":   {ModelPattern: "grok-4.6-latest", InputCostPerM: 2.00, OutputCostPerM: 6.00, CacheReadCostPerM: 0.50, Source: "curated"},
+	"grok-4.5":          {ModelPattern: "grok-4.5", InputCostPerM: 2.00, OutputCostPerM: 6.00, CacheReadCostPerM: 0.30, Source: "curated"},
+	"grok-4.3":          {ModelPattern: "grok-4.3", InputCostPerM: 1.25, OutputCostPerM: 2.50, CacheReadCostPerM: 0.20, Source: "curated"},
+	"grok-4.3-latest":   {ModelPattern: "grok-4.3-latest", InputCostPerM: 1.25, OutputCostPerM: 2.50, CacheReadCostPerM: 0.20, Source: "curated"},
 	"grok-build":        {ModelPattern: "grok-build", InputCostPerM: 0.20, OutputCostPerM: 1.50, Source: "curated"},
 
 	// Fallback

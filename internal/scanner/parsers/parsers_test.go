@@ -1,8 +1,11 @@
 package parsers
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultRegistry(t *testing.T) {
@@ -247,6 +250,204 @@ func TestGrokParser(t *testing.T) {
 	}
 	if sess.AgentName != "grok" || sess.TotalUsage.InputTokens != 45200 || sess.Model != "grok-build" {
 		t.Errorf("unexpected grok session: %+v", sess)
+	}
+}
+
+func TestGrokUnifiedLogAggregation(t *testing.T) {
+	ResetGrokLogCache()
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "unified.jsonl")
+
+	logContent := `{"msg":"noise","sid":"s1"}
+{"msg":"shell.turn.inference_done","sid":"s1","ctx":{"prompt_tokens":100,"cached_prompt_tokens":20,"completion_tokens":10,"reasoning_tokens":7}}
+{"msg":"shell.turn.inference_done","sid":"s1","ctx":{"prompt_tokens":250000,"cached_prompt_tokens":200000,"completion_tokens":50,"reasoning_tokens":40}}
+{"msg":"shell.turn.inference_done","sid":"other","ctx":{"prompt_tokens":10,"cached_prompt_tokens":0,"completion_tokens":1,"reasoning_tokens":0}}
+`
+	if err := os.WriteFile(logPath, []byte(logContent), 0644); err != nil {
+		t.Fatalf("failed to write log: %v", err)
+	}
+
+	bySID, err := LoadGrokUnifiedLog(logPath)
+	if err != nil {
+		t.Fatalf("LoadGrokUnifiedLog failed: %v", err)
+	}
+
+	row, found := bySID["s1"]
+	if !found {
+		t.Fatalf("expected s1 in parsed log")
+	}
+
+	// Turn 1: uncached = 100 - 20 = 80, cached = 20, out = 10, reasoning = 7
+	// Turn 2: uncached = 250000 - 200000 = 50000, cached = 200000, out = 50, reasoning = 40
+	// Total: input = 50080, cached = 200020, output = 60, reasoning = 47
+	if row.Input != 50080 {
+		t.Errorf("expected input tokens 50080, got %d", row.Input)
+	}
+	if row.Cached != 200020 {
+		t.Errorf("expected cached tokens 200020, got %d", row.Cached)
+	}
+	if row.Output != 60 {
+		t.Errorf("expected output tokens 60, got %d", row.Output)
+	}
+	if row.Reasoning != 47 {
+		t.Errorf("expected reasoning tokens 47, got %d", row.Reasoning)
+	}
+	if len(row.Turns) != 2 {
+		t.Fatalf("expected 2 turns, got %d", len(row.Turns))
+	}
+	if row.Turns[0].PromptTokens != 100 || row.Turns[0].CachedTokens != 20 || row.Turns[0].CompletionTokens != 10 {
+		t.Errorf("unexpected turn 0: %+v", row.Turns[0])
+	}
+	if row.Turns[1].PromptTokens != 250000 || row.Turns[1].CachedTokens != 200000 || row.Turns[1].CompletionTokens != 50 {
+		t.Errorf("unexpected turn 1: %+v", row.Turns[1])
+	}
+
+	if _, ok := bySID["other"]; !ok {
+		t.Errorf("expected 'other' sid to be present")
+	}
+}
+
+func TestGrokStatCaching(t *testing.T) {
+	ResetGrokLogCache()
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "unified.jsonl")
+
+	log1 := `{"msg":"shell.turn.inference_done","sid":"s1","ctx":{"prompt_tokens":100,"cached_prompt_tokens":10,"completion_tokens":5}}` + "\n"
+	if err := os.WriteFile(logPath, []byte(log1), 0644); err != nil {
+		t.Fatalf("failed to write log: %v", err)
+	}
+
+	res1, err := LoadGrokUnifiedLog(logPath)
+	if err != nil {
+		t.Fatalf("LoadGrokUnifiedLog failed: %v", err)
+	}
+	if res1["s1"].Input != 90 {
+		t.Errorf("expected input 90, got %d", res1["s1"].Input)
+	}
+
+	// Verify second read returns cached map
+	res2, err := LoadGrokUnifiedLog(logPath)
+	if err != nil {
+		t.Fatalf("LoadGrokUnifiedLog second call failed: %v", err)
+	}
+	if res2["s1"].Input != 90 {
+		t.Errorf("expected cached input 90, got %d", res2["s1"].Input)
+	}
+
+	// Modify file
+	time.Sleep(10 * time.Millisecond)
+	log2 := log1 + `{"msg":"shell.turn.inference_done","sid":"s1","ctx":{"prompt_tokens":200,"cached_prompt_tokens":20,"completion_tokens":10}}` + "\n"
+	if err := os.WriteFile(logPath, []byte(log2), 0644); err != nil {
+		t.Fatalf("failed to update log: %v", err)
+	}
+
+	res3, err := LoadGrokUnifiedLog(logPath)
+	if err != nil {
+		t.Fatalf("LoadGrokUnifiedLog third call failed: %v", err)
+	}
+	// 90 + 180 = 270
+	if res3["s1"].Input != 270 {
+		t.Errorf("expected updated input 270, got %d", res3["s1"].Input)
+	}
+}
+
+func TestGrokParserWithUnifiedLog(t *testing.T) {
+	ResetGrokLogCache()
+	tmpDir := t.TempDir()
+	sid := "01a0test-0000-0000-0000-000000000001"
+
+	grokRoot := filepath.Join(tmpDir, ".grok")
+	sessDir := filepath.Join(grokRoot, "sessions", "%2Ftmp%2Fx", sid)
+	logsDir := filepath.Join(grokRoot, "logs")
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatalf("failed to create sess dir: %v", err)
+	}
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		t.Fatalf("failed to create logs dir: %v", err)
+	}
+
+	summaryPath := filepath.Join(sessDir, "summary.json")
+	summaryDoc := `{"created_at":"2026-08-21T00:00:00Z","updated_at":"2026-08-21T00:01:00Z","generated_title":"sess 01a0test","current_model_id":"grok-4.6","info":{"cwd":"/tmp/x"}}`
+	if err := os.WriteFile(summaryPath, []byte(summaryDoc), 0644); err != nil {
+		t.Fatalf("failed to write summary: %v", err)
+	}
+
+	signalsPath := filepath.Join(sessDir, "signals.json")
+	signalsDoc := `{"contextTokensUsed":9999,"toolsUsed":["read_file"],"modelsUsed":["grok-4.6"]}`
+	if err := os.WriteFile(signalsPath, []byte(signalsDoc), 0644); err != nil {
+		t.Fatalf("failed to write signals: %v", err)
+	}
+
+	logPath := filepath.Join(logsDir, "unified.jsonl")
+	logDoc := `{"msg":"shell.turn.inference_done","sid":"` + sid + `","ctx":{"prompt_tokens":100,"cached_prompt_tokens":20,"completion_tokens":10}}
+{"msg":"shell.turn.inference_done","sid":"` + sid + `","ctx":{"prompt_tokens":250000,"cached_prompt_tokens":200000,"completion_tokens":50}}
+`
+	if err := os.WriteFile(logPath, []byte(logDoc), 0644); err != nil {
+		t.Fatalf("failed to write unified log: %v", err)
+	}
+
+	f, err := os.Open(summaryPath)
+	if err != nil {
+		t.Fatalf("failed to open summary: %v", err)
+	}
+	defer f.Close()
+
+	p := NewGrokParserWithLog(logPath)
+	sess, _, err := p.Parse(f, 0)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	if sess.TotalUsage.InputTokens != 50080 {
+		t.Errorf("expected billed input 50080, got %d", sess.TotalUsage.InputTokens)
+	}
+	if sess.TotalUsage.CacheReadTokens != 200020 {
+		t.Errorf("expected cached 200020, got %d", sess.TotalUsage.CacheReadTokens)
+	}
+	if sess.TotalUsage.OutputTokens != 60 {
+		t.Errorf("expected output 60, got %d", sess.TotalUsage.OutputTokens)
+	}
+	if sess.SessionID != sid {
+		t.Errorf("expected session id %s, got %s", sid, sess.SessionID)
+	}
+	if len(sess.Turns) != 2 {
+		t.Errorf("expected 2 turns, got %d", len(sess.Turns))
+	}
+}
+
+func TestGrokParserFallbackWithoutLog(t *testing.T) {
+	ResetGrokLogCache()
+	tmpDir := t.TempDir()
+	sid := "01a0test-0000-0000-0000-000000000002"
+
+	sessDir := filepath.Join(tmpDir, ".grok", "sessions", "%2Ftmp%2Fx", sid)
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		t.Fatalf("failed to create sess dir: %v", err)
+	}
+
+	signalsPath := filepath.Join(sessDir, "signals.json")
+	signalsDoc := `{"contextTokensUsed":1500,"toolsUsed":["read_file"],"modelsUsed":["grok-4.6"]}`
+	if err := os.WriteFile(signalsPath, []byte(signalsDoc), 0644); err != nil {
+		t.Fatalf("failed to write signals: %v", err)
+	}
+
+	f, err := os.Open(signalsPath)
+	if err != nil {
+		t.Fatalf("failed to open signals: %v", err)
+	}
+	defer f.Close()
+
+	p := NewGrokParserWithLog(filepath.Join(tmpDir, "missing.jsonl"))
+	sess, _, err := p.Parse(f, 0)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	if sess.TotalUsage.InputTokens != 1500 {
+		t.Errorf("expected fallback input 1500, got %d", sess.TotalUsage.InputTokens)
+	}
+	if sess.TotalUsage.OutputTokens != 0 || sess.TotalUsage.CacheReadTokens != 0 {
+		t.Errorf("expected output/cached 0 on fallback, got %+v", sess.TotalUsage)
 	}
 }
 

@@ -3,6 +3,7 @@ package pricing
 import (
 	"context"
 	"math"
+	"strings"
 
 	"github.com/robin-paul/tokentelemetry-go/internal/models"
 )
@@ -63,6 +64,42 @@ func (e *Engine) ResolveModel(modelName, provider string, overrides []models.Pri
 	return e.Resolver.Resolve(modelName, provider, overrides)
 }
 
+// XAILongPromptThreshold is the xAI long-context cliff (200k tokens).
+// Requests whose prompt reaches 200k tokens are billed at 2x all rates for that turn.
+const XAILongPromptThreshold = 200_000
+
+// CalculateXAITurnCost prices one xAI request, applying the 200k-prompt 2x cliff.
+// promptTokens is the full prompt (cached + uncached). Uncached input is prompt - cached.
+func CalculateXAITurnCost(rate models.ModelRate, promptTokens, completionTokens, cachedTokens int64) float64 {
+	prompt := promptTokens
+	if prompt < 0 {
+		prompt = 0
+	}
+	cached := cachedTokens
+	if cached < 0 {
+		cached = 0
+	}
+	if cached > prompt {
+		cached = prompt
+	}
+	uncached := prompt - cached
+	completion := completionTokens
+	if completion < 0 {
+		completion = 0
+	}
+
+	usage := models.TokenUsage{
+		InputTokens:     uncached,
+		OutputTokens:    completion,
+		CacheReadTokens: cached,
+	}
+	_, net := CalculateCost(usage, rate)
+	if prompt >= XAILongPromptThreshold {
+		net = roundToDecimals(net*2.0, 6)
+	}
+	return net
+}
+
 // CostSession calculates monetary and electricity costs across a session and its turns.
 func (e *Engine) CostSession(ctx context.Context, s *models.Session, endpoint, provider string, overrides []models.PricingOverride) {
 	isLocal := IsLocalSession("", endpoint, provider)
@@ -89,16 +126,35 @@ func (e *Engine) CostSession(ctx context.Context, s *models.Session, endpoint, p
 	}
 
 	// Cost individual turns if present
+	var sumTurnCosts float64
+	hasTurnPricing := false
+
 	for i := range s.Turns {
-		turnRate, _ := e.ResolveModel(s.Turns[i].ModelName, provider, overrides)
-		turnUsage := models.TokenUsage{
-			InputTokens:         s.Turns[i].InputTokens,
-			OutputTokens:        s.Turns[i].OutputTokens,
-			CacheReadTokens:     s.Turns[i].CacheReadTokens,
-			CacheCreationTokens: s.Turns[i].CacheCreationTokens,
+		turnModel := s.Turns[i].ModelName
+		if turnModel == "" {
+			turnModel = s.ModelRaw
 		}
-		_, turnNet := CalculateCost(turnUsage, turnRate)
-		s.Turns[i].CostUSD = turnNet
+		turnRate, _ := e.ResolveModel(turnModel, provider, overrides)
+		prompt := s.Turns[i].InputTokens + s.Turns[i].CacheReadTokens
+		if s.AgentName == "grok" || strings.HasPrefix(strings.ToLower(turnModel), "grok") {
+			s.Turns[i].CostUSD = CalculateXAITurnCost(turnRate, prompt, s.Turns[i].OutputTokens, s.Turns[i].CacheReadTokens)
+			sumTurnCosts += s.Turns[i].CostUSD
+			hasTurnPricing = true
+		} else {
+			turnUsage := models.TokenUsage{
+				InputTokens:         s.Turns[i].InputTokens,
+				OutputTokens:        s.Turns[i].OutputTokens,
+				CacheReadTokens:     s.Turns[i].CacheReadTokens,
+				CacheCreationTokens: s.Turns[i].CacheCreationTokens,
+			}
+			_, turnNet := CalculateCost(turnUsage, turnRate)
+			s.Turns[i].CostUSD = turnNet
+		}
+	}
+
+	if !isLocal && hasTurnPricing && len(s.Turns) > 0 && (s.OutputTokens > 0 || s.CacheReadTokens > 0) {
+		s.NetCostUSD = roundToDecimals(sumTurnCosts, 6)
+		s.GrossCostUSD = s.NetCostUSD
 	}
 }
 
