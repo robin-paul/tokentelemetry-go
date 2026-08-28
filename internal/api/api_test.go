@@ -899,4 +899,125 @@ func TestGetSessionDetailRichTurns(t *testing.T) {
 	}
 }
 
+func TestDSHLifecycleAPI(t *testing.T) {
+	ctx := context.Background()
+	_, db, router, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	// 1. Absent file returns installed: false
+	t.Setenv("TOKENTELEMETRY_DATA_DIR", t.TempDir())
+	req := newLocalRequest("GET", "/dsh/lifecycle", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	var res map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if res["installed"] != false {
+		t.Errorf("expected installed: false, got %v", res["installed"])
+	}
+	if res["correlation"] != "none" {
+		t.Errorf("expected correlation: none, got %v", res["correlation"])
+	}
+
+	// 2. With sidecar file
+	tmpDataDir := t.TempDir()
+	t.Setenv("TOKENTELEMETRY_DATA_DIR", tmpDataDir)
+	logFile := filepath.Join(tmpDataDir, "dsh_lifecycle.jsonl")
+
+	logContent := `{"ts":1000,"plugin":"cordis-plugin-a","from":0,"to":1}
+{"ts":2000,"plugin":"cordis-plugin-a","from":1,"to":2}
+{"ts":3000,"plugin":"cordis-plugin-b","from":1,"to":3,"error":"failed to init"}
+`
+	if err := os.WriteFile(logFile, []byte(logContent), 0644); err != nil {
+		t.Fatalf("failed to write sidecar file: %v", err)
+	}
+
+	req = newLocalRequest("GET", "/api/dsh/lifecycle", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	var resPresent models.DSHLifecycleSummary
+	if err := json.NewDecoder(w.Body).Decode(&resPresent); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !resPresent.Installed {
+		t.Errorf("expected installed true")
+	}
+	if resPresent.Transitions != 3 {
+		t.Errorf("expected 3 transitions, got %d", resPresent.Transitions)
+	}
+	if resPresent.Failed != 1 {
+		t.Errorf("expected 1 failed, got %d", resPresent.Failed)
+	}
+
+	// 3. With session_id correlation
+	sessID := "dsh:test-lifecycle-sess"
+	sess := &models.Session{
+		ID:          sessID,
+		SessionID:   "test-lifecycle-sess",
+		AgentName:   "dsh",
+		ProjectName: "lifecycle-proj",
+		StartTime:   time.UnixMilli(500),
+		EndTime:     time.UnixMilli(2500),
+		Status:      "completed",
+		DSH: &models.DSHContext{
+			AgentPreset: "cordis",
+		},
+	}
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, sess); err != nil {
+		t.Fatalf("failed to save session: %v", err)
+	}
+
+	req = newLocalRequest("GET", "/dsh/lifecycle?session_id="+sessID, nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	var resCorrelated models.DSHLifecycleSummary
+	if err := json.NewDecoder(w.Body).Decode(&resCorrelated); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resCorrelated.Correlation != "time-window" {
+		t.Errorf("expected correlation time-window, got %s", resCorrelated.Correlation)
+	}
+	// ts: 1000 and 2000 are inside [500, 2500]; ts: 3000 is outside
+	if resCorrelated.Transitions != 2 {
+		t.Errorf("expected 2 transitions inside window, got %d", resCorrelated.Transitions)
+	}
+
+	// 4. Session not found returns 404
+	req = newLocalRequest("GET", "/dsh/lifecycle?session_id=nonexistent", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404 for nonexistent session, got %d", w.Code)
+	}
+
+	// 5. GET /api/sessions/{id} attaches DSH lifecycle
+	req = newLocalRequest("GET", "/api/sessions/"+sessID, nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+	var fetched models.Session
+	if err := json.NewDecoder(w.Body).Decode(&fetched); err != nil {
+		t.Fatalf("failed to decode session: %v", err)
+	}
+	if fetched.DSH == nil || fetched.DSH.Lifecycle == nil {
+		t.Fatalf("expected attached DSH lifecycle")
+	}
+	if fetched.DSH.Lifecycle.Transitions != 2 {
+		t.Errorf("expected 2 correlated transitions on session, got %d", fetched.DSH.Lifecycle.Transitions)
+	}
+}
+
+
 

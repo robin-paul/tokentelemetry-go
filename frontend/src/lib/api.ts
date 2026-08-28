@@ -66,3 +66,12 @@ export function subscribeEvents(onMessage: (event: { type: string; data: any }) 
     es.close();
   };
 }
+
+export async function getDSHLifecycle(sessionId?: string, limit?: number): Promise<import('./types').DSHLifecycleSummary> {
+  const params = new URLSearchParams();
+  if (sessionId) params.set('session_id', sessionId);
+  if (limit) params.set('limit', String(limit));
+  const query = params.toString();
+  return apiFetch<import('./types').DSHLifecycleSummary>(`/api/dsh/lifecycle${query ? `?${query}` : ''}`);
+}
+

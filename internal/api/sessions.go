@@ -263,13 +263,41 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if sess.AgentName == "dsh" && sess.FilePath != "" && sess.DSH == nil {
-		if f, err := os.Open(sess.FilePath); err == nil {
-			p := parsers.NewDSHParser()
-			if parsed, _, parseErr := p.Parse(f, 0); parseErr == nil && parsed != nil {
-				sess.DSH = parsed.DSH
+	if sess.AgentName == "dsh" {
+		if sess.FilePath != "" && sess.DSH == nil {
+			if f, err := os.Open(sess.FilePath); err == nil {
+				p := parsers.NewDSHParser()
+				if parsed, _, parseErr := p.Parse(f, 0); parseErr == nil && parsed != nil {
+					sess.DSH = parsed.DSH
+				}
+				f.Close()
 			}
-			f.Close()
+		}
+		if sess.DSH == nil {
+			sess.DSH = &models.DSHContext{}
+		}
+		if sess.DSH.Lifecycle == nil {
+			lifecyclePath := parsers.DefaultDSHLifecycleFilePath()
+			if lifecyclePath != "" {
+				if _, statErr := os.Stat(lifecyclePath); statErr == nil {
+					var since, until *int64
+					if !sess.StartTime.IsZero() {
+						s := sess.StartTime.UnixMilli()
+						since = &s
+					}
+					if !sess.EndTime.IsZero() {
+						u := sess.EndTime.UnixMilli()
+						until = &u
+					}
+					ev := parsers.ReadDSHLifecycleEvents(lifecyclePath, since, until, 500)
+					summary := parsers.SummarizeDSHLifecycleEvents(ev)
+					summary.Installed = true
+					if since != nil || until != nil {
+						summary.Correlation = "time-window"
+					}
+					sess.DSH.Lifecycle = &summary
+				}
+			}
 		}
 	}
 

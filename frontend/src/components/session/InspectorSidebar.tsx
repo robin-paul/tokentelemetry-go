@@ -19,6 +19,7 @@ import {
   Clock,
   Coins,
   Zap,
+  Activity,
 } from 'lucide-react';
 import { formatCost, formatTokens, formatDuration, formatDate } from '../../lib/format';
 import { getAgentMeta } from '../../lib/agents';
@@ -389,6 +390,76 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* DSH Plugin Lifecycle */}
+            {session.dsh?.lifecycle && (
+              <div className="space-y-2 pt-2 border-t border-white/5" data-testid="dsh-lifecycle-section">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Activity className="w-3.5 h-3.5 text-cyan-400" /> Plugin Lifecycle
+                  </span>
+                  <span className="font-mono text-[10px] text-gray-500">
+                    {session.dsh.lifecycle.transitions} transitions · {session.dsh.lifecycle.plugins?.length ?? 0} plugins
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 font-mono text-[11px]">
+                  <div className="p-2 rounded-lg bg-black/40 border border-white/5 text-center">
+                    <div className="text-[10px] text-gray-500 uppercase">Total</div>
+                    <div className="text-white font-semibold">{session.dsh.lifecycle.transitions}</div>
+                  </div>
+                  <div className={`p-2 rounded-lg bg-black/40 border ${session.dsh.lifecycle.failed > 0 ? 'border-rose-500/30 bg-rose-500/5' : 'border-white/5'} text-center`}>
+                    <div className="text-[10px] text-gray-500 uppercase">Failed</div>
+                    <div className={`font-semibold ${session.dsh.lifecycle.failed > 0 ? 'text-rose-400 font-bold' : 'text-gray-300'}`}>
+                      {session.dsh.lifecycle.failed}
+                    </div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-black/40 border border-white/5 text-center">
+                    <div className="text-[10px] text-gray-500 uppercase">Reloads</div>
+                    <div className="text-cyan-400 font-semibold">{session.dsh.lifecycle.reloads}</div>
+                  </div>
+                </div>
+
+                {/* Plugin list */}
+                {session.dsh.lifecycle.plugins && session.dsh.lifecycle.plugins.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="text-[10px] uppercase tracking-wider text-gray-400">Plugin Inventory</div>
+                    <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                      {session.dsh.lifecycle.plugins.map((plug) => (
+                        <div
+                          key={plug.plugin}
+                          className="flex items-center justify-between p-2 rounded-lg bg-black/40 border border-white/5 font-mono text-[11px]"
+                        >
+                          <div className="truncate mr-2">
+                            <span className="text-white font-medium truncate" title={plug.plugin}>
+                              {plug.plugin}
+                            </span>
+                            {plug.failed > 0 && (
+                              <span className="ml-1.5 text-[10px] text-rose-400 font-bold">
+                                ({plug.failed} fail)
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider font-bold shrink-0 ${
+                              plug.final_state === 'active'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : plug.final_state === 'failed'
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                : plug.final_state === 'loading'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'bg-gray-500/10 text-gray-400 border border-gray-500/20'
+                            }`}
+                          >
+                            {plug.final_state || 'unknown'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

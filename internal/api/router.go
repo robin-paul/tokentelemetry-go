@@ -73,6 +73,11 @@ func (s *Server) Router() http.Handler {
 		// Ingestion
 		router.Post("/ingest", s.IngestBatch)
 		router.Post("/v1/ingest", s.IngestBatch)
+
+		// DSH & Cache
+		router.Get("/dsh/lifecycle", s.GetDSHLifecycle)
+		router.Get("/cache/status", s.GetCacheStatus)
+		router.Post("/cache/invalidate", s.InvalidateCache)
 	}
 
 	// Mount /api and /api/v1 subtrees

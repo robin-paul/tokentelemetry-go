@@ -502,4 +502,66 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
             });
         }
     );
+
+    test(
+        'should surface DSH plugin lifecycle transitions and plugin inventory in the Inspector Sidebar',
+        { tag: '@regression' },
+        async ({ sessionsPage, sessionDetailPage, transcriptFixture, page }) => {
+            const projectName = 'e2e-dsh-lifecycle-project';
+            const sessionId = `dsh-lc-${Date.now()}`;
+
+            await test.step('GIVEN a DSH session and a sidecar lifecycle log with transitions', async () => {
+                const now = Date.now();
+                const sessionJsonl = [
+                    JSON.stringify({ type: 'session', id: sessionId, time: now - 10000, agentPreset: 'cordis' }),
+                    JSON.stringify({ type: 'step/start', time: now - 9000, data: { turn: 1, step: 1 } }),
+                    JSON.stringify({
+                        type: 'assistant/chunk',
+                        time: now - 5000,
+                        data: {
+                            turn: 1,
+                            step: 1,
+                            chunk: {
+                                type: 'finish',
+                                usage: { inputTokens: 1500, outputTokens: 300, cacheReadTokens: 500 },
+                            },
+                        },
+                    }),
+                ].join('\n');
+
+                const lifecycleJsonl = [
+                    JSON.stringify({ ts: now - 9500, plugin: 'cordis-router', from: 0, to: 1 }),
+                    JSON.stringify({ ts: now - 9000, plugin: 'cordis-router', from: 1, to: 2 }),
+                    JSON.stringify({ ts: now - 8500, plugin: 'cordis-auth', from: 1, to: 3, error: 'auth failed' }),
+                ].join('\n');
+
+                await transcriptFixture.writeRawTranscript(
+                    `.dsh/sessions/${projectName}/${sessionId}/session.jsonl`,
+                    sessionJsonl
+                );
+                await transcriptFixture.writeRawTranscript(
+                    `.tokentelemetry/dsh_lifecycle.jsonl`,
+                    lifecycleJsonl
+                );
+            });
+
+            await test.step('WHEN the user opens the DSH session in Session Inspector', async () => {
+                await sessionsPage.open();
+                await expect(sessionsPage.sessionTable).toBeVisible();
+
+                await sessionsPage.search(projectName);
+                const sessionRow = sessionsPage.getSessionRow(projectName).first();
+                await expect(sessionRow).toBeVisible();
+                await sessionRow.click();
+                await page.waitForURL(/\/sessions\/.+/);
+            });
+
+            await test.step('THEN the Inspector Sidebar surfaces the DSH Plugin Lifecycle section', async () => {
+                await expect(sessionDetailPage.dshLifecycleSection).toBeVisible();
+                await expect(sessionDetailPage.dshLifecycleSection).toContainText(/Plugin Lifecycle/i);
+                await expect(sessionDetailPage.dshLifecycleSection).toContainText('cordis-router');
+                await expect(sessionDetailPage.dshLifecycleSection).toContainText('cordis-auth');
+            });
+        }
+    );
 });

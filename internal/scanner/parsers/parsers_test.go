@@ -390,6 +390,152 @@ func TestDSHSubagentForkIsTreatedAsASubagent(t *testing.T) {
 	}
 }
 
+func TestDSHLifecycleAbsentFileIsNotAnError(t *testing.T) {
+	events := ReadDSHLifecycleEvents("/nonexistent/path/dsh_lifecycle.jsonl", nil, nil, 500)
+	if len(events) != 0 {
+		t.Errorf("expected empty slice for absent lifecycle file, got %d events", len(events))
+	}
+}
+
+func TestDSHLifecycleReadsAndNormalisesStates(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "dsh_lifecycle.jsonl")
+
+	content := `{"ts":1000,"plugin":"tt-probe","from":0,"to":1}
+{"ts":2000,"plugin":"tt-probe","from":"LOADING","to":"ACTIVE"}
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write log file: %v", err)
+	}
+
+	events := ReadDSHLifecycleEvents(logFile, nil, nil, 500)
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+
+	if events[0].From != "pending" || events[0].To != "loading" {
+		t.Errorf("expected event[0] pending -> loading, got %s -> %s", events[0].From, events[0].To)
+	}
+	if events[1].From != "loading" || events[1].To != "active" {
+		t.Errorf("expected event[1] loading -> active, got %s -> %s", events[1].From, events[1].To)
+	}
+}
+
+func TestDSHLifecycleSkipsTornFinalLine(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "dsh_lifecycle.jsonl")
+
+	content := "{\"ts\":1000,\"plugin\":\"a\",\"from\":1,\"to\":2}\n{\"ts\": 2000, \"plugin\": \"b\", \"fr"
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write log file: %v", err)
+	}
+
+	events := ReadDSHLifecycleEvents(logFile, nil, nil, 500)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Plugin != "a" {
+		t.Errorf("expected plugin 'a', got %s", events[0].Plugin)
+	}
+}
+
+func TestDSHLifecycleTimeWindowFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "dsh_lifecycle.jsonl")
+
+	content := `{"ts":100,"plugin":"early","from":1,"to":2}
+{"ts":500,"plugin":"inside","from":1,"to":2}
+{"ts":900,"plugin":"late","from":1,"to":2}
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write log file: %v", err)
+	}
+
+	since := int64(200)
+	until := int64(800)
+	events := ReadDSHLifecycleEvents(logFile, &since, &until, 500)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event inside time window, got %d", len(events))
+	}
+	if events[0].Plugin != "inside" {
+		t.Errorf("expected plugin inside, got %s", events[0].Plugin)
+	}
+}
+
+func TestDSHLifecycleSummaryCountsFailuresAndReloads(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "dsh_lifecycle.jsonl")
+
+	content := `{"ts":1,"plugin":"good","from":1,"to":2}
+{"ts":2,"plugin":"bad","from":1,"to":3,"error":"boom"}
+{"ts":3,"plugin":"good","from":2,"to":1}
+{"ts":4,"plugin":"good","from":2,"to":5}
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write log file: %v", err)
+	}
+
+	events := ReadDSHLifecycleEvents(logFile, nil, nil, 500)
+	s := SummarizeDSHLifecycleEvents(events)
+
+	if s.Transitions != 4 {
+		t.Errorf("expected 4 transitions, got %d", s.Transitions)
+	}
+	if s.Failed != 1 {
+		t.Errorf("expected 1 failed, got %d", s.Failed)
+	}
+	if s.Reloads != 1 {
+		t.Errorf("expected 1 reload, got %d", s.Reloads)
+	}
+	if s.Unloads != 1 {
+		t.Errorf("expected 1 unload, got %d", s.Unloads)
+	}
+	if len(s.Plugins) < 2 {
+		t.Fatalf("expected at least 2 plugins, got %d", len(s.Plugins))
+	}
+	if s.Plugins[0].Plugin != "bad" || s.Plugins[0].Failed != 1 {
+		t.Errorf("expected failed plugin 'bad' to sort first, got %+v", s.Plugins[0])
+	}
+}
+
+func TestDSHParserCorrelatesLifecycleSidecar(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "dsh_lifecycle.jsonl")
+	t.Setenv("TOKENTELEMETRY_DATA_DIR", tmpDir)
+
+	content := `{"ts":1000,"plugin":"cordis-router","from":0,"to":1}
+{"ts":1200,"plugin":"cordis-router","from":1,"to":2}
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write log file: %v", err)
+	}
+
+	p := NewDSHParser()
+	sessionJsonl := `{"type":"session","id":"sess-lifecycle-test","time":1000}
+{"type":"step/start","time":1000,"data":{"turn":1,"step":1}}
+{"type":"assistant/chunk","time":1500,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(sessionJsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if sess.DSH == nil || sess.DSH.Lifecycle == nil {
+		t.Fatalf("expected DSH lifecycle summary attached")
+	}
+
+	lc := sess.DSH.Lifecycle
+	if !lc.Installed {
+		t.Errorf("expected installed to be true")
+	}
+	if lc.Correlation != "time-window" {
+		t.Errorf("expected correlation time-window, got %s", lc.Correlation)
+	}
+	if lc.Transitions != 2 {
+		t.Errorf("expected 2 transitions, got %d", lc.Transitions)
+	}
+}
+
 func TestCopilotParser(t *testing.T) {
 	p := NewCopilotParser()
 	if !p.Detect("/Users/dev/.copilot/session-state/sess1/events.jsonl") {

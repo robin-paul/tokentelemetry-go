@@ -74,12 +74,46 @@ type DSHMetrics struct {
 	CacheHitPct     *float64 `json:"cache_hit_pct,omitempty"`
 }
 
-// DSHContext holds DSH-specific metadata, posture, and metrics.
+// DSHLifecycleEvent represents a single plugin lifecycle transition record from dsh_lifecycle.jsonl.
+type DSHLifecycleEvent struct {
+	TS      int64   `json:"ts"`
+	Plugin  string  `json:"plugin"`
+	EntryID *string `json:"entry_id,omitempty"`
+	UID     *int64  `json:"uid,omitempty"`
+	From    string  `json:"from,omitempty"`
+	To      string  `json:"to,omitempty"`
+	Error   string  `json:"error,omitempty"`
+}
+
+// DSHPluginSummary holds aggregated transition metrics for a specific plugin.
+type DSHPluginSummary struct {
+	Plugin      string `json:"plugin"`
+	Transitions int    `json:"transitions"`
+	Failed      int    `json:"failed"`
+	FinalState  string `json:"final_state,omitempty"`
+}
+
+// DSHLifecycleSummary holds rolled-up lifecycle transitions.
+type DSHLifecycleSummary struct {
+	Installed   bool               `json:"installed"`
+	Correlation string             `json:"correlation"`
+	Transitions int                `json:"transitions"`
+	Failed      int                `json:"failed"`
+	Reloads     int                `json:"reloads"`
+	Unloads     int                `json:"unloads"`
+	FirstTS     *int64             `json:"first_ts,omitempty"`
+	LastTS      *int64             `json:"last_ts,omitempty"`
+	Plugins     []DSHPluginSummary `json:"plugins,omitempty"`
+	Events      []DSHLifecycleEvent `json:"events,omitempty"`
+}
+
+// DSHContext holds DSH-specific metadata, posture, metrics, and plugin lifecycle.
 type DSHContext struct {
 	Metrics        *DSHMetrics            `json:"metrics,omitempty"`
 	AgentPreset    string                 `json:"agent_preset,omitempty"`
 	PresetChain    []string               `json:"preset_chain,omitempty"`
 	Sandbox        map[string]interface{} `json:"sandbox,omitempty"`
+	Lifecycle      *DSHLifecycleSummary   `json:"lifecycle,omitempty"`
 	ModelsUsed     []string               `json:"models_used,omitempty"`
 	ProvidersUsed  []string               `json:"providers_used,omitempty"`
 	SkillsCatalog  []string               `json:"skills_catalog,omitempty"`

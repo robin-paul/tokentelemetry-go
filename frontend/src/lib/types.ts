@@ -90,11 +90,42 @@ export interface DSHMetrics {
   cache_hit_pct?: number | null;
 }
 
+export interface DSHLifecycleEvent {
+  ts: number;
+  plugin: string;
+  entry_id?: string;
+  uid?: number;
+  from?: string;
+  to?: string;
+  error?: string;
+}
+
+export interface DSHPluginSummary {
+  plugin: string;
+  transitions: number;
+  failed: number;
+  final_state?: string;
+}
+
+export interface DSHLifecycleSummary {
+  installed: boolean;
+  correlation: string;
+  transitions: number;
+  failed: number;
+  reloads: number;
+  unloads: number;
+  first_ts?: number | null;
+  last_ts?: number | null;
+  plugins?: DSHPluginSummary[];
+  events?: DSHLifecycleEvent[];
+}
+
 export interface DSHContext {
   agent_preset?: string;
   preset_chain?: string[];
   sandbox?: Record<string, unknown>;
   metrics?: DSHMetrics;
+  lifecycle?: DSHLifecycleSummary;
   models_used?: string[];
   providers_used?: string[];
   skills_catalog?: string[];

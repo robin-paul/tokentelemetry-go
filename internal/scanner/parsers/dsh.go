@@ -1,10 +1,14 @@
 package parsers
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -377,5 +381,255 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 		Sandbox:     sandbox,
 	}
 
+	// Correlate plugin lifecycle sidecar events if present
+	lifecyclePath := DefaultDSHLifecycleFilePath()
+	if lifecyclePath != "" {
+		if _, statErr := os.Stat(lifecyclePath); statErr == nil {
+			var since, until *int64
+			if !firstTime.IsZero() {
+				s := firstTime.UnixMilli()
+				since = &s
+			}
+			if !lastTime.IsZero() {
+				u := lastTime.UnixMilli()
+				until = &u
+			}
+			ev := ReadDSHLifecycleEvents(lifecyclePath, since, until, 500)
+			summary := SummarizeDSHLifecycleEvents(ev)
+			summary.Installed = true
+			if since != nil || until != nil {
+				summary.Correlation = "time-window"
+			}
+			session.DSH.Lifecycle = &summary
+		}
+	}
+
 	return session, endOffset, nil
+}
+
+// DSHFiberStates maps Cordis FiberState const enum ordinals to readable state names.
+var DSHFiberStates = map[int]string{
+	0: "pending",
+	1: "loading",
+	2: "active",
+	3: "failed",
+	4: "disposed",
+	5: "unloading",
+}
+
+// NormalizeDSHFiberState maps either integer ordinals (0-5) or state name strings to lowercase canonical state names.
+func NormalizeDSHFiberState(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		return strings.ToLower(strings.TrimSpace(val))
+	case float64:
+		return DSHFiberStates[int(val)]
+	case int:
+		return DSHFiberStates[val]
+	case int64:
+		return DSHFiberStates[int(val)]
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return DSHFiberStates[int(i)]
+		}
+	}
+	return ""
+}
+
+// DefaultDSHLifecycleFilePath resolves the path to dsh_lifecycle.jsonl respecting environment variables and user home.
+func DefaultDSHLifecycleFilePath() string {
+	if dir := os.Getenv("TOKENTELEMETRY_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "dsh_lifecycle.jsonl")
+	}
+	if home := os.Getenv("TOKENTELEMETRY_HOME"); home != "" {
+		return filepath.Join(home, ".tokentelemetry", "dsh_lifecycle.jsonl")
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		return filepath.Join(home, ".tokentelemetry", "dsh_lifecycle.jsonl")
+	}
+	return ""
+}
+
+// ReadDSHLifecycleEvents parses plugin lifecycle transitions from the sidecar log file.
+// If filePath is empty, the default path is used. Missing files return an empty list without error.
+// Torn/partial lines are ignored. Results are sorted ascending by timestamp and capped at limit (most recent).
+func ReadDSHLifecycleEvents(filePath string, sinceMs, untilMs *int64, limit int) []models.DSHLifecycleEvent {
+	if filePath == "" {
+		filePath = DefaultDSHLifecycleFilePath()
+	}
+	if filePath == "" {
+		return []models.DSHLifecycleEvent{}
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return []models.DSHLifecycleEvent{}
+	}
+	defer f.Close()
+
+	var events []models.DSHLifecycleEvent
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var row map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &row); err != nil {
+			// Torn / partial line
+			continue
+		}
+
+		rawTS, ok := row["ts"]
+		if !ok || rawTS == nil {
+			continue
+		}
+
+		var ts int64
+		switch t := rawTS.(type) {
+		case float64:
+			ts = int64(t)
+		case int64:
+			ts = t
+		case int:
+			ts = int64(t)
+		case json.Number:
+			if parsed, err := t.Int64(); err == nil {
+				ts = parsed
+			} else {
+				continue
+			}
+		default:
+			continue
+		}
+
+		if sinceMs != nil && ts < *sinceMs {
+			continue
+		}
+		if untilMs != nil && ts > *untilMs {
+			continue
+		}
+
+		plugin := "unknown"
+		if p, ok := row["plugin"].(string); ok && p != "" {
+			plugin = p
+		} else if n, ok := row["name"].(string); ok && n != "" {
+			plugin = n
+		}
+
+		var entryID *string
+		if eid, ok := row["entry_id"].(string); ok && eid != "" {
+			entryID = &eid
+		}
+
+		var uid *int64
+		if u, ok := row["uid"].(float64); ok {
+			i := int64(u)
+			uid = &i
+		} else if u, ok := row["uid"].(int64); ok {
+			uid = &u
+		}
+
+		fromState := NormalizeDSHFiberState(row["from"])
+		toState := NormalizeDSHFiberState(row["to"])
+
+		var errStr string
+		if e, ok := row["error"].(string); ok {
+			errStr = e
+		}
+
+		events = append(events, models.DSHLifecycleEvent{
+			TS:      ts,
+			Plugin:  plugin,
+			EntryID: entryID,
+			UID:     uid,
+			From:    fromState,
+			To:      toState,
+			Error:   errStr,
+		})
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].TS < events[j].TS
+	})
+
+	if limit > 0 && len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+
+	if events == nil {
+		events = []models.DSHLifecycleEvent{}
+	}
+
+	return events
+}
+
+// SummarizeDSHLifecycleEvents rolls transitions up into summary metrics.
+func SummarizeDSHLifecycleEvents(events []models.DSHLifecycleEvent) models.DSHLifecycleSummary {
+	pluginsMap := make(map[string]*models.DSHPluginSummary)
+	failed := 0
+	reloads := 0
+	unloads := 0
+
+	for _, e := range events {
+		p, exists := pluginsMap[e.Plugin]
+		if !exists {
+			p = &models.DSHPluginSummary{
+				Plugin: e.Plugin,
+			}
+			pluginsMap[e.Plugin] = p
+		}
+		p.Transitions++
+		p.FinalState = e.To
+
+		if e.To == "failed" {
+			p.Failed++
+			failed++
+		} else if e.To == "loading" && (e.From == "active" || e.From == "failed" || e.From == "disposed") {
+			reloads++
+		} else if e.To == "unloading" {
+			unloads++
+		}
+	}
+
+	pluginsList := make([]models.DSHPluginSummary, 0, len(pluginsMap))
+	for _, p := range pluginsMap {
+		pluginsList = append(pluginsList, *p)
+	}
+
+	// Sort plugins: failed count descending, then plugin name ascending
+	sort.Slice(pluginsList, func(i, j int) bool {
+		if pluginsList[i].Failed != pluginsList[j].Failed {
+			return pluginsList[i].Failed > pluginsList[j].Failed
+		}
+		return pluginsList[i].Plugin < pluginsList[j].Plugin
+	})
+
+	var firstTS, lastTS *int64
+	if len(events) > 0 {
+		f := events[0].TS
+		l := events[len(events)-1].TS
+		firstTS = &f
+		lastTS = &l
+	}
+
+	return models.DSHLifecycleSummary{
+		Installed:   true,
+		Correlation: "none",
+		Transitions: len(events),
+		Failed:      failed,
+		Reloads:     reloads,
+		Unloads:     unloads,
+		FirstTS:     firstTS,
+		LastTS:      lastTS,
+		Plugins:     pluginsList,
+		Events:      events,
+	}
 }

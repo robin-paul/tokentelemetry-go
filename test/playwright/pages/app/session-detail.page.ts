@@ -205,6 +205,10 @@ export class SessionDetailPage {
         return this.page.locator('[data-testid="unified-column"], [data-test="unified-column"]');
     }
 
+    get dshLifecycleSection(): Locator {
+        return this.page.locator('[data-testid="dsh-lifecycle-section"]');
+    }
+
     // ==================== Actions ====================
 
     /**
