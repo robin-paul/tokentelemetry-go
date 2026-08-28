@@ -276,8 +276,8 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request) {
 		if sess.DSH == nil {
 			sess.DSH = &models.DSHContext{}
 		}
-		if sess.DSH.Lifecycle == nil {
-			lifecyclePath := parsers.DefaultDSHLifecycleFilePath()
+		if sess.DSH.Lifecycle == nil || sess.DSH.Lifecycle.Transitions == 0 {
+			lifecyclePath := parsers.ResolveDSHLifecycleFilePath(sess.FilePath)
 			if lifecyclePath != "" {
 				if _, statErr := os.Stat(lifecyclePath); statErr == nil {
 					var since, until *int64
@@ -396,6 +396,22 @@ func (s *Server) GetDelegation(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	for i := range subagents {
+		if subagents[i].Sandbox == nil || len(subagents[i].Sandbox) == 0 {
+			if child, err := s.db.GetSessionDetail(r.Context(), subagents[i].ChildSessionID); err == nil && child != nil {
+				if child.AgentName == "dsh" && child.FilePath != "" {
+					if f, err := os.Open(child.FilePath); err == nil {
+						p := parsers.NewDSHParser()
+						if parsed, _, parseErr := p.Parse(f, 0); parseErr == nil && parsed != nil && parsed.DSH != nil && parsed.DSH.Sandbox != nil {
+							subagents[i].Sandbox = parsed.DSH.Sandbox
+						}
+						f.Close()
+					}
+				}
+			}
+		}
 	}
 
 	var totalTokens int64

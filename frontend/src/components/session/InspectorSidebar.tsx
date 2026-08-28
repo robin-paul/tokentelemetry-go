@@ -20,6 +20,7 @@ import {
   Coins,
   Zap,
   Activity,
+  Settings2,
 } from 'lucide-react';
 import { formatCost, formatTokens, formatDuration, formatDate } from '../../lib/format';
 import { getAgentMeta } from '../../lib/agents';
@@ -343,6 +344,64 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                 )}
               </div>
             </div>
+
+            {/* DSH Runtime Capabilities */}
+            {session.dsh && (((session.dsh.skills_catalog?.length ?? 0) > 0) || ((session.dsh.tools_available?.length ?? 0) > 0) || ((session.dsh.providers_used?.length ?? 0) > 0)) && (
+              <div className="space-y-3 pt-2 border-t border-white/5" data-testid="dsh-runtime-capabilities">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                  <Settings2 className="w-3.5 h-3.5 text-cyan-400" /> Runtime Capabilities
+                </div>
+                <div className="text-[10px] text-gray-500 leading-relaxed">
+                  Resolved by DSH at run time and read back from this session&apos;s log — not a scan of what is installed now.
+                </div>
+
+                {(session.dsh.skills_catalog?.length ?? 0) > 0 && (
+                  <details open className="group">
+                    <summary className="text-[10px] font-bold uppercase tracking-wider text-gray-400 cursor-pointer hover:text-white flex items-center justify-between">
+                      <span>Skills Loaded ({session.dsh.skills_catalog?.length})</span>
+                      <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90 text-gray-500" />
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {session.dsh.skills_catalog?.map((s, i) => (
+                        <span
+                          key={i}
+                          title={s.description || ''}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded border bg-cyan-500/10 text-cyan-300 border-cyan-500/20"
+                        >
+                          {s.name}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {(session.dsh.tools_available?.length ?? 0) > 0 && (
+                  <details className="group">
+                    <summary className="text-[10px] font-bold uppercase tracking-wider text-gray-400 cursor-pointer hover:text-white flex items-center justify-between">
+                      <span>Tools Available ({session.dsh.tools_available?.length})</span>
+                      <ChevronRight className="w-3 h-3 transition-transform group-open:rotate-90 text-gray-500" />
+                    </summary>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {session.dsh.tools_available?.map((t, i) => (
+                        <span
+                          key={i}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded border bg-white/[0.04] text-gray-300 border-white/10"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {(session.dsh.providers_used?.length ?? 0) > 0 && (
+                  <div className="flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-gray-400">Providers:</span>
+                    <span className="text-white font-medium">{session.dsh.providers_used.join(', ')}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* DSH Latency & Throughput Breakdown */}
             {session.dsh?.metrics && (session.dsh.metrics.llm_ms != null || session.dsh.metrics.tool_ms != null || session.dsh.metrics.ttft_ms_avg != null) && (

@@ -218,6 +218,7 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 					id, parent_session_id, child_session_id, agent_type, tokens, cost_usd, created_at
 				) VALUES (?, ?, ?, ?, ?, ?, ?)
 				ON CONFLICT(child_session_id) DO UPDATE SET
+					parent_session_id = excluded.parent_session_id,
 					tokens = excluded.tokens,
 					cost_usd = excluded.cost_usd;
 			`)
@@ -235,6 +236,35 @@ func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Ses
 				); err != nil {
 					return fmt.Errorf("failed to insert subagent run: %w", err)
 				}
+			}
+		}
+
+		// If this session itself is a subagent, link to parent in subagent_runs
+		if s.IsSubagent && s.ParentSessionID != "" {
+			subStmt, err := tx.PrepareContext(ctx, `
+				INSERT INTO subagent_runs (
+					id, parent_session_id, child_session_id, agent_type, tokens, cost_usd, created_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(child_session_id) DO UPDATE SET
+					parent_session_id = excluded.parent_session_id,
+					tokens = excluded.tokens,
+					cost_usd = excluded.cost_usd;
+			`)
+			if err == nil {
+				agentType := s.SubagentType
+				if agentType == "" {
+					agentType = s.AgentName + "-subagent"
+				}
+				totTokens := s.InputTokens + s.OutputTokens
+				subID := "subrun:" + s.ID
+				runTime := s.StartTime
+				if runTime.IsZero() {
+					runTime = now
+				}
+				_, _ = subStmt.ExecContext(ctx,
+					subID, s.ParentSessionID, s.ID, agentType, totTokens, s.NetCostUSD, runTime,
+				)
+				subStmt.Close()
 			}
 		}
 
@@ -387,14 +417,21 @@ func (d *DB) GetMessageTurns(ctx context.Context, sessionID string) ([]models.Me
 
 // GetSubagentRuns fetches all subagent runs linked to a parent session.
 func (d *DB) GetSubagentRuns(ctx context.Context, parentSessionID string) ([]models.SubagentRun, error) {
+	altID := parentSessionID
+	if strings.Contains(parentSessionID, ":") {
+		parts := strings.SplitN(parentSessionID, ":", 2)
+		altID = parts[1]
+	} else {
+		altID = "dsh:" + parentSessionID
+	}
 	query := `
 	SELECT
 		id, parent_session_id, child_session_id, agent_type, tokens, cost_usd, created_at
 	FROM subagent_runs
-	WHERE parent_session_id = ?
+	WHERE parent_session_id = ? OR parent_session_id = ?
 	ORDER BY created_at ASC;
 	`
-	rows, err := d.readerDB.QueryContext(ctx, query, parentSessionID)
+	rows, err := d.readerDB.QueryContext(ctx, query, parentSessionID, altID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query subagents: %w", err)
 	}
@@ -407,6 +444,9 @@ func (d *DB) GetSubagentRuns(ctx context.Context, parentSessionID string) ([]mod
 			&r.ID, &r.ParentSessionID, &r.ChildSessionID, &r.AgentType, &r.Tokens, &r.CostUSD, &r.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan subagent run: %w", err)
+		}
+		if child, err := d.GetSessionDetail(ctx, r.ChildSessionID); err == nil && child != nil && child.DSH != nil && child.DSH.Sandbox != nil {
+			r.Sandbox = child.DSH.Sandbox
 		}
 		runs = append(runs, r)
 	}

@@ -1019,5 +1019,201 @@ func TestDSHLifecycleAPI(t *testing.T) {
 	}
 }
 
+func TestDSHSurfacingAcrossAgentsTraceAndDelegation(t *testing.T) {
+	_, db, router, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	tmpDir := t.TempDir()
+	sessionFile := filepath.Join(tmpDir, "session.jsonl")
+
+	sessionJsonl := fmt.Sprintf(`{"type":"session","id":"parent-101","time":%d,"agentPreset":"cordis"}
+{"type":"request/context","time":%d,"data":{"provider":"cerebras","model":"zai-glm-4.7"}}
+{"type":"request/header","time":%d,"data":{"header":{"tools":[{"name":"bash"},{"name":"web_search"}]}}}
+{"type":"user/message","time":%d,"data":{"role":"user","source":{"kind":"skill-catalog","entries":[{"name":"code-review","description":"Review code"}]},"content":[{"type":"text","text":"catalog"}]}}
+{"type":"user/message","time":%d,"data":{"role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"Please review the code"}]}}
+{"type":"assistant/message","time":%d,"data":{"turn":1,"step":1,"content":[{"type":"reasoning","text":"Thinking deeply..."},{"type":"text","text":"I have reviewed it."}],"usage":{"inputTokens":5000,"outputTokens":2000}}}
+{"type":"tool/call","time":%d,"data":{"turn":1,"step":1,"callId":"c1","name":"bash","arguments":"{\"cmd\":\"git diff\"}"}}
+{"type":"tool/result","time":%d,"data":{"turn":1,"step":1,"callId":"c1","content":[{"type":"text","text":"+ diff content"}]}}
+`, now.Add(-10*time.Minute).UnixMilli(),
+		now.Add(-9*time.Minute).UnixMilli(),
+		now.Add(-9*time.Minute).UnixMilli(),
+		now.Add(-8*time.Minute).UnixMilli(),
+		now.Add(-7*time.Minute).UnixMilli(),
+		now.Add(-6*time.Minute).UnixMilli(),
+		now.Add(-5*time.Minute).UnixMilli(),
+		now.Add(-4*time.Minute).UnixMilli())
+
+	if err := os.WriteFile(sessionFile, []byte(sessionJsonl), 0644); err != nil {
+		t.Fatalf("failed to write session file: %v", err)
+	}
+
+	// 1. Seed a parent DSH session and a child subagent DSH session
+	parentID := "dsh:parent-101"
+	childID := "dsh:child-202"
+
+	parentSess := &models.Session{
+		ID:           parentID,
+		SessionID:    "parent-101",
+		AgentName:    "dsh",
+		ProjectName:  "dsh-project",
+		FilePath:     sessionFile,
+		StartTime:    now.Add(-10 * time.Minute),
+		EndTime:      now,
+		Status:       "completed",
+		InputTokens:  5000,
+		OutputTokens: 2000,
+		NetCostUSD:   0.05,
+		Turns: []models.MessageTurn{
+			{
+				ID:        "turn-1",
+				SessionID: parentID,
+				TurnIndex: 1,
+				Role:      "user",
+				Content:   "Please review the code",
+			},
+			{
+				ID:              "turn-2",
+				SessionID:       parentID,
+				TurnIndex:       2,
+				Role:            "assistant",
+				Content:         "I have reviewed it.",
+				Thinking:        "Thinking deeply...",
+				ReasoningEffort: "high",
+				InputTokens:     5000,
+				OutputTokens:    2000,
+				ToolsInvoked:    []string{"bash"},
+				ToolCalls: []models.ToolCall{
+					{ID: "c1", Name: "bash", ArgsJSON: `{"cmd":"git diff"}`},
+				},
+				ToolResults: []models.ToolResult{
+					{ID: "c1", Content: "+ diff content"},
+				},
+			},
+		},
+	}
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, parentSess); err != nil {
+		t.Fatalf("failed to insert parent: %v", err)
+	}
+
+	childFile := filepath.Join(tmpDir, "child.jsonl")
+	childJsonl := fmt.Sprintf(`{"type":"session","id":"child-202","time":%d,"origin":"subagent","parentSession":"%s"}
+{"type":"sandbox/mode","time":%d,"data":{"mode":"read-only","source":"delegation"}}
+{"type":"approval/policy","time":%d,"data":{"policy":"prompt","source":"delegation"}}
+{"type":"assistant/message","time":%d,"data":{"turn":1,"step":1,"content":[{"type":"text","text":"child response"}],"usage":{"inputTokens":1200,"outputTokens":400}}}
+`, now.Add(-5*time.Minute).UnixMilli(), parentID,
+		now.Add(-5*time.Minute).UnixMilli(),
+		now.Add(-5*time.Minute).UnixMilli(),
+		now.Add(-4*time.Minute).UnixMilli())
+
+	if err := os.WriteFile(childFile, []byte(childJsonl), 0644); err != nil {
+		t.Fatalf("failed to write child session file: %v", err)
+	}
+
+	childSess := &models.Session{
+		ID:              childID,
+		SessionID:       "child-202",
+		AgentName:       "dsh",
+		ProjectName:     "dsh-project",
+		FilePath:        childFile,
+		StartTime:       now.Add(-5 * time.Minute),
+		EndTime:         now.Add(-2 * time.Minute),
+		Status:          "completed",
+		IsSubagent:      true,
+		ParentSessionID: parentID,
+		SubagentType:    "dsh-subagent",
+		InputTokens:     1200,
+		OutputTokens:    400,
+		NetCostUSD:      0.015,
+	}
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, childSess); err != nil {
+		t.Fatalf("failed to insert child: %v", err)
+	}
+
+	// Verify 1: GET /agents includes "dsh"
+	req := newLocalRequest("GET", "/agents", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200 from /agents, got %d", w.Code)
+	}
+	var agents []string
+	if err := json.NewDecoder(w.Body).Decode(&agents); err != nil {
+		t.Fatalf("failed to decode agents: %v", err)
+	}
+	foundDSH := false
+	for _, a := range agents {
+		if a == "dsh" {
+			foundDSH = true
+			break
+		}
+	}
+	if !foundDSH {
+		t.Errorf("expected DSH in /agents list: %+v", agents)
+	}
+
+	// Verify 2: GET /api/sessions/{id} returns trace normalization and runtime capabilities
+	req = newLocalRequest("GET", "/api/sessions/"+parentID, nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200 from /api/sessions/%s, got %d", parentID, w.Code)
+	}
+	var fetchedParent models.Session
+	if err := json.NewDecoder(w.Body).Decode(&fetchedParent); err != nil {
+		t.Fatalf("failed to decode parent session: %v", err)
+	}
+	if len(fetchedParent.Turns) != 2 {
+		t.Fatalf("expected 2 turns, got %d", len(fetchedParent.Turns))
+	}
+	if fetchedParent.Turns[1].Thinking != "Thinking deeply..." || fetchedParent.Turns[1].ReasoningEffort != "high" {
+		t.Errorf("expected thinking in turn 2, got %s", fetchedParent.Turns[1].Thinking)
+	}
+	if len(fetchedParent.Turns[1].ToolCalls) != 1 || fetchedParent.Turns[1].ToolCalls[0].Name != "bash" {
+		t.Errorf("expected tool call in turn 2, got %+v", fetchedParent.Turns[1].ToolCalls)
+	}
+	if fetchedParent.DSH == nil || len(fetchedParent.DSH.SkillsCatalog) != 1 || fetchedParent.DSH.SkillsCatalog[0].Name != "code-review" {
+		t.Errorf("expected runtime skills catalog, got %+v", fetchedParent.DSH)
+	}
+
+	// Verify 3: GET /api/sessions/{id}/delegation returns subagent runs and posture
+	req = newLocalRequest("GET", "/api/sessions/"+parentID+"/delegation", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200 from delegation, got %d", w.Code)
+	}
+	var delegationResp struct {
+		Supported  bool                 `json:"supported"`
+		SpawnCount int                  `json:"spawn_count"`
+		Subagents  []models.SubagentRun `json:"subagents"`
+		Totals     struct {
+			Tokens int64   `json:"tokens"`
+			Cost   float64 `json:"cost"`
+		} `json:"totals"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&delegationResp); err != nil {
+		t.Fatalf("failed to decode delegation response: %v", err)
+	}
+	if len(delegationResp.Subagents) != 1 {
+		t.Fatalf("expected 1 subagent run, got %d", len(delegationResp.Subagents))
+	}
+	if delegationResp.Subagents[0].ChildSessionID != childID {
+		t.Errorf("expected child session ID %s, got %s", childID, delegationResp.Subagents[0].ChildSessionID)
+	}
+	if delegationResp.Subagents[0].Tokens != 1600 {
+		t.Errorf("expected 1600 tokens (1200+400), got %d", delegationResp.Subagents[0].Tokens)
+	}
+	if delegationResp.Subagents[0].CostUSD != 0.015 {
+		t.Errorf("expected cost 0.015, got %f", delegationResp.Subagents[0].CostUSD)
+	}
+	if delegationResp.Subagents[0].Sandbox == nil || delegationResp.Subagents[0].Sandbox["mode"] != "read-only" {
+		t.Errorf("expected inherited sandbox posture on subagent run, got %+v", delegationResp.Subagents[0].Sandbox)
+	}
+}
+
+
 
 

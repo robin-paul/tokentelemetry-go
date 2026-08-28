@@ -120,6 +120,11 @@ export interface DSHLifecycleSummary {
   events?: DSHLifecycleEvent[];
 }
 
+export interface DSHSkillEntry {
+  name: string;
+  description?: string;
+}
+
 export interface DSHContext {
   agent_preset?: string;
   preset_chain?: string[];
@@ -128,7 +133,7 @@ export interface DSHContext {
   lifecycle?: DSHLifecycleSummary;
   models_used?: string[];
   providers_used?: string[];
-  skills_catalog?: string[];
+  skills_catalog?: DSHSkillEntry[];
   tools_available?: string[];
 }
 

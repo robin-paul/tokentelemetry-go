@@ -32,6 +32,31 @@ func (p *DSHParser) Detect(filePath string) bool {
 		(strings.HasSuffix(lower, ".jsonl") || strings.HasSuffix(lower, ".jsonl.zstd") || strings.HasSuffix(lower, ".json"))
 }
 
+func parseToolArguments(raw interface{}) (map[string]interface{}, string) {
+	if raw == nil {
+		return map[string]interface{}{}, "{}"
+	}
+	switch v := raw.(type) {
+	case string:
+		var m map[string]interface{}
+		if err := json.Unmarshal([]byte(v), &m); err == nil && m != nil {
+			return m, v
+		}
+		return map[string]interface{}{"raw": v}, v
+	case map[string]interface{}:
+		b, _ := json.Marshal(v)
+		return v, string(b)
+	default:
+		b, _ := json.Marshal(v)
+		var m map[string]interface{}
+		_ = json.Unmarshal(b, &m)
+		if m == nil {
+			m = map[string]interface{}{}
+		}
+		return m, string(b)
+	}
+}
+
 func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64, error) {
 	session := &ParsedSession{
 		AgentName:  "dsh",
@@ -41,13 +66,19 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 		TotalUsage: TokenUsage{},
 	}
 
-	seenTurnStep := make(map[string]bool)
+	seenTurnStep := make(map[string]int) // key -> turn index in session.Turns
+	usageRecorded := make(map[string]bool)
 	stepStart := make(map[string]int64)
 	stepFirstChunk := make(map[string]int64)
 	stepFinish := make(map[string]int64)
 	toolCallAt := make(map[string]int64)
 	sandbox := make(map[string]interface{})
 	var presetChain []string
+
+	skillsCatalogMap := make(map[string]string)
+	toolsAvailableMap := make(map[string]bool)
+	var providersUsed []string
+	var modelsUsed []string
 
 	var toolMsTotal int64
 	var turnsCount, stepsCount int
@@ -64,19 +95,33 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			ParentSession string `json:"parentSession"`
 			AgentPreset   string `json:"agentPreset"`
 			Data          struct {
-				Turn        int    `json:"turn"`
-				Step        int    `json:"step"`
-				Provider    string `json:"provider"`
-				Model       string `json:"model"`
-				CallID      string `json:"callId"`
-				Name        string `json:"name"`
-				Arguments   string `json:"arguments"`
-				Mode        string `json:"mode"`
-				Policy      string `json:"policy"`
-				Preset      string `json:"preset"`
-				AgentPreset string `json:"agentPreset"`
-				Source      string `json:"source"`
-				Chunk       *struct {
+				Turn        int         `json:"turn"`
+				Step        int         `json:"step"`
+				Provider    string      `json:"provider"`
+				Model       string      `json:"model"`
+				CallID      string      `json:"callId"`
+				Name        string      `json:"name"`
+				Arguments   interface{} `json:"arguments"`
+				Mode        string      `json:"mode"`
+				Policy      string      `json:"policy"`
+				Preset      string      `json:"preset"`
+				AgentPreset string      `json:"agentPreset"`
+				Source      interface{} `json:"source"`
+				Header *struct {
+					Tools []struct {
+						Name string `json:"name"`
+					} `json:"tools"`
+				} `json:"header"`
+				Content []struct {
+					Type       string      `json:"type"`
+					Text       string      `json:"text"`
+					Reasoning  string      `json:"reasoning"`
+					Thinking   string      `json:"thinking"`
+					ToolCallID string      `json:"toolCallId"`
+					IsError    bool        `json:"isError"`
+					Content    interface{} `json:"content"`
+				} `json:"content"`
+				Chunk *struct {
 					Type  string `json:"type"`
 					Usage *struct {
 						InputTokens     int64 `json:"inputTokens"`
@@ -90,10 +135,22 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 					CacheReadTokens int64 `json:"cacheReadTokens"`
 				} `json:"usage"`
 				Message *struct {
+					Role   string `json:"role"`
 					Source *struct {
-						Kind   string `json:"kind"`
-						CallID string `json:"callId"`
+						Kind     string `json:"kind"`
+						Provider string `json:"provider"`
+						Model    string `json:"model"`
+						CallID   string `json:"callId"`
 					} `json:"source"`
+					Content []struct {
+						Type       string      `json:"type"`
+						Text       string      `json:"text"`
+						Reasoning  string      `json:"reasoning"`
+						Thinking   string      `json:"thinking"`
+						ToolCallID string      `json:"toolCallId"`
+						IsError    bool        `json:"isError"`
+						Content    interface{} `json:"content"`
+					} `json:"content"`
 				} `json:"message"`
 			} `json:"data"`
 		}
@@ -136,10 +193,40 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			}
 		}
 
-		if event.Type == "request/context" && event.Data.Model != "" {
-			session.Model = event.Data.Model
+		if event.Type == "request/context" {
+			if event.Data.Model != "" {
+				session.Model = event.Data.Model
+				hasModel := false
+				for _, m := range modelsUsed {
+					if m == event.Data.Model {
+						hasModel = true
+						break
+					}
+				}
+				if !hasModel {
+					modelsUsed = append(modelsUsed, event.Data.Model)
+				}
+			}
 			if event.Data.Provider != "" {
 				session.Provider = event.Data.Provider
+				hasProv := false
+				for _, p := range providersUsed {
+					if p == event.Data.Provider {
+						hasProv = true
+						break
+					}
+				}
+				if !hasProv {
+					providersUsed = append(providersUsed, event.Data.Provider)
+				}
+			}
+		}
+
+		if event.Type == "request/header" && event.Data.Header != nil {
+			for _, tool := range event.Data.Header.Tools {
+				if tool.Name != "" {
+					toolsAvailableMap[tool.Name] = true
+				}
 			}
 		}
 
@@ -153,8 +240,12 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 		if event.Type == "sandbox/mode" {
 			if event.Data.Mode != "" {
 				sandbox["mode"] = event.Data.Mode
-				if event.Data.Source != "" {
-					sandbox["mode_source"] = event.Data.Source
+				srcStr := ""
+				if s, ok := event.Data.Source.(string); ok {
+					srcStr = s
+				}
+				if srcStr != "" {
+					sandbox["mode_source"] = srcStr
 				} else {
 					sandbox["mode_source"] = "session"
 				}
@@ -164,8 +255,12 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 		if event.Type == "approval/policy" {
 			if event.Data.Policy != "" {
 				sandbox["approval"] = event.Data.Policy
-				if event.Data.Source != "" {
-					sandbox["approval_source"] = event.Data.Source
+				srcStr := ""
+				if s, ok := event.Data.Source.(string); ok {
+					srcStr = s
+				}
+				if srcStr != "" {
+					sandbox["approval_source"] = srcStr
 				} else {
 					sandbox["approval_source"] = "session"
 				}
@@ -190,19 +285,127 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			}
 		}
 
+		if event.Type == "user/message" {
+			sourceKind := ""
+			if event.Data.Source != nil {
+				if s, ok := event.Data.Source.(string); ok {
+					sourceKind = s
+				} else if m, ok := event.Data.Source.(map[string]interface{}); ok {
+					if k, ok := m["kind"].(string); ok {
+						sourceKind = k
+					}
+					if sourceKind == "skill-catalog" {
+						if entries, ok := m["entries"].([]interface{}); ok {
+							for _, ent := range entries {
+								if em, ok := ent.(map[string]interface{}); ok {
+									name, _ := em["name"].(string)
+									desc, _ := em["description"].(string)
+									if name != "" {
+										skillsCatalogMap[name] = desc
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Only real user turns (source.kind == "user" or empty source) should be preserved in trace
+			if sourceKind == "user" || (sourceKind == "" && event.Data.Source == nil) {
+				var parts []string
+				for _, c := range event.Data.Content {
+					if (c.Type == "text" || c.Type == "") && c.Text != "" {
+						parts = append(parts, c.Text)
+					}
+				}
+				userText := strings.Join(parts, "\n\n")
+				if strings.TrimSpace(userText) != "" && !strings.HasPrefix(strings.TrimSpace(userText), "<system-reminder>") {
+					turnIndex++
+					turn := Turn{
+						Index:       turnIndex,
+						Timestamp:   ts,
+						Role:        "user",
+						Content:     userText,
+						Tools:       make([]string, 0),
+						ToolCalls:   make([]models.ToolCall, 0),
+						ToolResults: make([]models.ToolResult, 0),
+					}
+					session.Turns = append(session.Turns, turn)
+				}
+			}
+		}
+
 		if event.Type == "tool/call" {
-			if event.Data.CallID != "" && rawTime > 0 {
-				toolCallAt[event.Data.CallID] = rawTime
+			callID := event.Data.CallID
+			toolName := event.Data.Name
+			if callID != "" && rawTime > 0 {
+				toolCallAt[callID] = rawTime
+			}
+			argsMap, argsJSON := parseToolArguments(event.Data.Arguments)
+			toolCall := models.ToolCall{
+				ID:       callID,
+				Name:     toolName,
+				Args:     argsMap,
+				ArgsJSON: argsJSON,
+			}
+
+			// Attach to the latest assistant turn if exists, else create an assistant turn
+			if len(session.Turns) > 0 && session.Turns[len(session.Turns)-1].Role == "assistant" {
+				lastIdx := len(session.Turns) - 1
+				if toolName != "" {
+					session.Turns[lastIdx].Tools = append(session.Turns[lastIdx].Tools, toolName)
+				}
+				session.Turns[lastIdx].ToolCalls = append(session.Turns[lastIdx].ToolCalls, toolCall)
+			} else {
+				turnIndex++
+				turn := Turn{
+					Index:       turnIndex,
+					Timestamp:   ts,
+					Role:        "assistant",
+					Model:       session.Model,
+					Tools:       []string{toolName},
+					ToolCalls:   []models.ToolCall{toolCall},
+					ToolResults: make([]models.ToolResult, 0),
+				}
+				key := fmt.Sprintf("%d:%d", event.Data.Turn, event.Data.Step)
+				seenTurnStep[key] = len(session.Turns)
+				session.Turns = append(session.Turns, turn)
 			}
 		}
 
 		if event.Type == "tool/result" {
-			callID := ""
-			if event.Data.Message != nil && event.Data.Message.Source != nil && event.Data.Message.Source.CallID != "" {
+			callID := event.Data.CallID
+			if callID == "" && event.Data.Message != nil && event.Data.Message.Source != nil {
 				callID = event.Data.Message.Source.CallID
-			} else if event.Data.CallID != "" {
-				callID = event.Data.CallID
 			}
+
+			var textParts []string
+			contentList := event.Data.Content
+			if event.Data.Message != nil && len(event.Data.Message.Content) > 0 {
+				contentList = event.Data.Message.Content
+			}
+			for _, block := range contentList {
+				if callID == "" && block.ToolCallID != "" {
+					callID = block.ToolCallID
+				}
+				if block.Text != "" {
+					textParts = append(textParts, block.Text)
+				} else if block.Content != nil {
+					switch val := block.Content.(type) {
+					case string:
+						textParts = append(textParts, val)
+					case []interface{}:
+						for _, item := range val {
+							if im, ok := item.(map[string]interface{}); ok {
+								if t, ok := im["text"].(string); ok {
+									textParts = append(textParts, t)
+								}
+							}
+						}
+					}
+				}
+			}
+
 			if callID != "" {
 				if started, ok := toolCallAt[callID]; ok {
 					if rawTime >= started {
@@ -211,9 +414,19 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 					delete(toolCallAt, callID)
 				}
 			}
+
+			toolResult := models.ToolResult{
+				ID:      callID,
+				Content: strings.Join(textParts, "\n"),
+			}
+
+			if len(session.Turns) > 0 {
+				lastIdx := len(session.Turns) - 1
+				session.Turns[lastIdx].ToolResults = append(session.Turns[lastIdx].ToolResults, toolResult)
+			}
 		}
 
-		// Handle chunk / message usage with deduplication by (turn, step)
+		// Handle chunk / message usage and assistant turns
 		var usageIn, usageOut, usageCache int64
 		hasUsage := false
 
@@ -254,36 +467,108 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			hasUsage = true
 		}
 
-		if hasUsage {
-			key := fmt.Sprintf("%d:%d", event.Data.Turn, event.Data.Step)
-			if !seenTurnStep[key] {
-				seenTurnStep[key] = true
-				turnIndex++
+		if event.Type == "assistant/message" {
+			var textParts []string
+			var reasoningParts []string
+			contentList := event.Data.Content
+			if event.Data.Message != nil && len(event.Data.Message.Content) > 0 {
+				contentList = event.Data.Message.Content
+			}
+			for _, c := range contentList {
+				if c.Type == "reasoning" || c.Type == "thinking" {
+					th := c.Reasoning
+					if th == "" {
+						th = c.Thinking
+					}
+					if th == "" {
+						th = c.Text
+					}
+					if th != "" {
+						reasoningParts = append(reasoningParts, th)
+					}
+				} else if (c.Type == "text" || c.Type == "") && c.Text != "" {
+					textParts = append(textParts, c.Text)
+				}
+			}
 
+			textContent := strings.Join(textParts, "\n\n")
+			reasoningContent := strings.Join(reasoningParts, "\n\n")
+
+			key := fmt.Sprintf("%d:%d", event.Data.Turn, event.Data.Step)
+			turnIdx, exists := seenTurnStep[key]
+			if exists && turnIdx >= 0 && turnIdx < len(session.Turns) && session.Turns[turnIdx].Role == "assistant" {
+				if textContent != "" {
+					if session.Turns[turnIdx].Content != "" {
+						session.Turns[turnIdx].Content += "\n\n" + textContent
+					} else {
+						session.Turns[turnIdx].Content = textContent
+					}
+				}
+				if reasoningContent != "" {
+					session.Turns[turnIdx].Thinking = reasoningContent
+					session.Turns[turnIdx].ReasoningEffort = "high"
+				}
+				if hasUsage {
+					session.Turns[turnIdx].Usage.InputTokens = usageIn
+					session.Turns[turnIdx].Usage.OutputTokens = usageOut
+					session.Turns[turnIdx].Usage.CacheReadTokens = usageCache
+				}
+			} else {
+				turnIndex++
 				turn := Turn{
-					Index:     turnIndex,
-					Timestamp: ts,
-					Role:      "assistant",
-					Model:     session.Model,
-					Usage: TokenUsage{
+					Index:       turnIndex,
+					Timestamp:   ts,
+					Role:        "assistant",
+					Model:       session.Model,
+					Content:     textContent,
+					Thinking:    reasoningContent,
+					Tools:       make([]string, 0),
+					ToolCalls:   make([]models.ToolCall, 0),
+					ToolResults: make([]models.ToolResult, 0),
+				}
+				if reasoningContent != "" {
+					turn.ReasoningEffort = "high"
+				}
+				if hasUsage {
+					turn.Usage = TokenUsage{
 						InputTokens:     usageIn,
 						OutputTokens:    usageOut,
 						CacheReadTokens: usageCache,
-					},
-					Tools: make([]string, 0),
+					}
 				}
-
-				session.TotalUsage.InputTokens += usageIn
-				session.TotalUsage.OutputTokens += usageOut
-				session.TotalUsage.CacheReadTokens += usageCache
-
+				seenTurnStep[key] = len(session.Turns)
 				session.Turns = append(session.Turns, turn)
 			}
 		}
 
-		if event.Type == "tool/call" && event.Data.Name != "" {
-			if len(session.Turns) > 0 {
-				session.Turns[len(session.Turns)-1].Tools = append(session.Turns[len(session.Turns)-1].Tools, event.Data.Name)
+		if hasUsage {
+			key := fmt.Sprintf("%d:%d", event.Data.Turn, event.Data.Step)
+			if !usageRecorded[key] {
+				usageRecorded[key] = true
+				session.TotalUsage.InputTokens += usageIn
+				session.TotalUsage.OutputTokens += usageOut
+				session.TotalUsage.CacheReadTokens += usageCache
+
+				// Ensure an assistant turn exists if one hasn't been created yet
+				if _, exists := seenTurnStep[key]; !exists {
+					turnIndex++
+					turn := Turn{
+						Index:     turnIndex,
+						Timestamp: ts,
+						Role:      "assistant",
+						Model:     session.Model,
+						Usage: TokenUsage{
+							InputTokens:     usageIn,
+							OutputTokens:    usageOut,
+							CacheReadTokens: usageCache,
+						},
+						Tools:       make([]string, 0),
+						ToolCalls:   make([]models.ToolCall, 0),
+						ToolResults: make([]models.ToolResult, 0),
+					}
+					seenTurnStep[key] = len(session.Turns)
+					session.Turns = append(session.Turns, turn)
+				}
 			}
 		}
 
@@ -366,6 +651,39 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 		effectivePreset = presetChain[len(presetChain)-1]
 	}
 
+	// Prepare skills catalog and tools available
+	var skillsCatalog []models.DSHSkillEntry
+	var skillNames []string
+	for k := range skillsCatalogMap {
+		skillNames = append(skillNames, k)
+	}
+	sort.Strings(skillNames)
+	for _, name := range skillNames {
+		skillsCatalog = append(skillsCatalog, models.DSHSkillEntry{
+			Name:        name,
+			Description: skillsCatalogMap[name],
+		})
+	}
+	if skillsCatalog == nil {
+		skillsCatalog = []models.DSHSkillEntry{}
+	}
+
+	var toolsAvailable []string
+	for t := range toolsAvailableMap {
+		toolsAvailable = append(toolsAvailable, t)
+	}
+	sort.Strings(toolsAvailable)
+	if toolsAvailable == nil {
+		toolsAvailable = []string{}
+	}
+
+	if modelsUsed == nil {
+		modelsUsed = []string{}
+	}
+	if providersUsed == nil {
+		providersUsed = []string{}
+	}
+
 	session.DSH = &models.DSHContext{
 		Metrics: &models.DSHMetrics{
 			Turns:           turnsCount,
@@ -376,9 +694,13 @@ func (p *DSHParser) Parse(r io.Reader, startOffset int64) (*ParsedSession, int64
 			OutputTokPerSec: outputTokPerSec,
 			CacheHitPct:     cacheHitPct,
 		},
-		AgentPreset: effectivePreset,
-		PresetChain: presetChain,
-		Sandbox:     sandbox,
+		AgentPreset:    effectivePreset,
+		PresetChain:    presetChain,
+		Sandbox:        sandbox,
+		ModelsUsed:     modelsUsed,
+		ProvidersUsed:  providersUsed,
+		SkillsCatalog:  skillsCatalog,
+		ToolsAvailable: toolsAvailable,
 	}
 
 	// Correlate plugin lifecycle sidecar events if present
@@ -439,13 +761,69 @@ func NormalizeDSHFiberState(v interface{}) string {
 	return ""
 }
 
+// ResolveDSHLifecycleFilePath finds dsh_lifecycle.jsonl by walking up from the session file directory or checking env/home dirs.
+func ResolveDSHLifecycleFilePath(sessionPath string) string {
+	if sessionPath != "" {
+		dir := filepath.Dir(sessionPath)
+		for i := 0; i < 6; i++ {
+			p := filepath.Join(dir, ".tokentelemetry", "dsh_lifecycle.jsonl")
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+			p2 := filepath.Join(dir, "dsh_lifecycle.jsonl")
+			if _, err := os.Stat(p2); err == nil {
+				return p2
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return DefaultDSHLifecycleFilePath()
+}
+
 // DefaultDSHLifecycleFilePath resolves the path to dsh_lifecycle.jsonl respecting environment variables and user home.
 func DefaultDSHLifecycleFilePath() string {
 	if dir := os.Getenv("TOKENTELEMETRY_DATA_DIR"); dir != "" {
-		return filepath.Join(dir, "dsh_lifecycle.jsonl")
+		p := filepath.Join(dir, "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		p2 := filepath.Join(dir, ".tokentelemetry", "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p2); err == nil {
+			return p2
+		}
+		return p
 	}
 	if home := os.Getenv("TOKENTELEMETRY_HOME"); home != "" {
-		return filepath.Join(home, ".tokentelemetry", "dsh_lifecycle.jsonl")
+		p := filepath.Join(home, ".tokentelemetry", "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		p2 := filepath.Join(home, "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p2); err == nil {
+			return p2
+		}
+		return p
+	}
+	if scanDir := os.Getenv("E2E_SCAN_DIR"); scanDir != "" {
+		p := filepath.Join(scanDir, ".tokentelemetry", "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		p2 := filepath.Join(scanDir, "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p2); err == nil {
+			return p2
+		}
+		return p
+	}
+	if tmpDir := os.Getenv("E2E_TEMP_DIR"); tmpDir != "" {
+		p := filepath.Join(tmpDir, "logs", ".tokentelemetry", "dsh_lifecycle.jsonl")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
 	}
 	home, err := os.UserHomeDir()
 	if err == nil {

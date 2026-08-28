@@ -536,6 +536,108 @@ func TestDSHParserCorrelatesLifecycleSidecar(t *testing.T) {
 	}
 }
 
+func TestDSHTraceNormalizesMessagesToolsAndReasoning(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"session","id":"session-trace","time":1000}
+{"type":"user/message","seq":1,"time":1000,"data":{"role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"hello there"}]}}
+{"type":"assistant/message","seq":2,"time":2000,"data":{"turn":1,"step":1,"message":{"role":"assistant","source":{"provider":"cerebras","model":"zai-glm-4.7"}},"content":[{"type":"reasoning","text":"thinking it over"},{"type":"text","text":"hi back"}]}}
+{"type":"tool/call","seq":3,"time":3000,"data":{"turn":1,"step":1,"callId":"c1","name":"bash","arguments":"{\"command\":\"ls\"}"}}
+{"type":"tool/result","seq":4,"time":4000,"data":{"turn":1,"step":1,"message":{"role":"user","source":{"kind":"tool","callId":"c1"}},"content":[{"type":"tool-result","toolCallId":"c1","isError":false,"content":[{"type":"text","text":"file1.txt"}]}]}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(sess.Turns) < 2 {
+		t.Fatalf("expected at least 2 turns, got %d", len(sess.Turns))
+	}
+
+	userTurn := sess.Turns[0]
+	if userTurn.Role != "user" || userTurn.Content != "hello there" {
+		t.Errorf("expected user turn 'hello there', got role=%s content=%s", userTurn.Role, userTurn.Content)
+	}
+
+	assistantTurn := sess.Turns[1]
+	if assistantTurn.Role != "assistant" {
+		t.Errorf("expected assistant turn, got %s", assistantTurn.Role)
+	}
+	if assistantTurn.Thinking != "thinking it over" {
+		t.Errorf("expected thinking 'thinking it over', got %s", assistantTurn.Thinking)
+	}
+	if assistantTurn.Content != "hi back" {
+		t.Errorf("expected content 'hi back', got %s", assistantTurn.Content)
+	}
+	if len(assistantTurn.ToolCalls) != 1 || assistantTurn.ToolCalls[0].ID != "c1" || assistantTurn.ToolCalls[0].Name != "bash" {
+		t.Errorf("expected tool call c1 bash, got %+v", assistantTurn.ToolCalls)
+	}
+	if len(assistantTurn.ToolResults) != 1 || assistantTurn.ToolResults[0].ID != "c1" || assistantTurn.ToolResults[0].Content != "file1.txt" {
+		t.Errorf("expected tool result c1 file1.txt, got %+v", assistantTurn.ToolResults)
+	}
+}
+
+func TestDSHTraceDropsPluginInjectedUserMessages(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"session","id":"session-inject","time":1000}
+{"type":"user/message","seq":1,"time":1000,"data":{"role":"user","source":{"kind":"plugin","plugin":"@deepseek-ai/dsh-system-prompt"},"content":[{"type":"text","text":"Current runtime context snapshot..."}]}}
+{"type":"user/message","seq":2,"time":1100,"data":{"role":"user","source":{"kind":"skill-catalog"},"content":[{"type":"text","text":"<system-reminder>skills</system-reminder>"}]}}
+{"type":"user/message","seq":3,"time":1200,"data":{"role":"user","source":{"kind":"user"},"content":[{"type":"text","text":"the real question"}]}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(sess.Turns) != 1 {
+		t.Fatalf("expected exactly 1 user turn, got %d", len(sess.Turns))
+	}
+	if sess.Turns[0].Role != "user" || sess.Turns[0].Content != "the real question" {
+		t.Errorf("expected 'the real question', got %+v", sess.Turns[0])
+	}
+}
+
+func TestDSHCapturesRuntimeSkillCatalogAndTools(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"session","id":"session-skills-tools","time":1000}
+{"type":"request/context","seq":1,"time":1000,"data":{"provider":"ollama","model":"deepseek-v4-flash:cloud"}}
+{"type":"request/header","seq":2,"time":1001,"data":{"header":{"tools":[{"name":"bash"},{"name":"skill"},{"name":"subagent"}]}}}
+{"type":"request/context","seq":3,"time":2000,"data":{"provider":"cerebras","model":"zai-glm-4.7"}}
+{"type":"request/header","seq":4,"time":2001,"data":{"header":{"tools":[{"name":"bash"},{"name":"web_search"}]}}}
+{"type":"user/message","seq":5,"time":2100,"data":{"role":"user","source":{"kind":"skill-catalog","entries":[{"name":"find-skills","description":"Discover skills"},{"name":"cordis-plugin-development","description":"Develop plugins"}]},"content":[{"type":"text","text":"<system-reminder>catalog</system-reminder>"}]}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if sess.DSH == nil {
+		t.Fatalf("expected DSHContext")
+	}
+
+	expectedTools := []string{"bash", "skill", "subagent", "web_search"}
+	if len(sess.DSH.ToolsAvailable) != len(expectedTools) {
+		t.Errorf("expected %d tools, got %+v", len(expectedTools), sess.DSH.ToolsAvailable)
+	} else {
+		for i, tool := range expectedTools {
+			if sess.DSH.ToolsAvailable[i] != tool {
+				t.Errorf("expected tool %s at %d, got %s", tool, i, sess.DSH.ToolsAvailable[i])
+			}
+		}
+	}
+
+	expectedProviders := []string{"ollama", "cerebras"}
+	if len(sess.DSH.ProvidersUsed) != len(expectedProviders) {
+		t.Errorf("expected providers %v, got %v", expectedProviders, sess.DSH.ProvidersUsed)
+	}
+
+	if len(sess.DSH.SkillsCatalog) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(sess.DSH.SkillsCatalog))
+	}
+	if sess.DSH.SkillsCatalog[0].Name != "cordis-plugin-development" || sess.DSH.SkillsCatalog[1].Name != "find-skills" {
+		t.Errorf("unexpected skills catalog order or names: %+v", sess.DSH.SkillsCatalog)
+	}
+}
+
 func TestCopilotParser(t *testing.T) {
 	p := NewCopilotParser()
 	if !p.Detect("/Users/dev/.copilot/session-state/sess1/events.jsonl") {

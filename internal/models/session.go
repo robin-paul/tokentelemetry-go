@@ -107,6 +107,12 @@ type DSHLifecycleSummary struct {
 	Events      []DSHLifecycleEvent `json:"events,omitempty"`
 }
 
+// DSHSkillEntry represents an individual runtime skill entry resolved by DSH.
+type DSHSkillEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 // DSHContext holds DSH-specific metadata, posture, metrics, and plugin lifecycle.
 type DSHContext struct {
 	Metrics        *DSHMetrics            `json:"metrics,omitempty"`
@@ -116,7 +122,7 @@ type DSHContext struct {
 	Lifecycle      *DSHLifecycleSummary   `json:"lifecycle,omitempty"`
 	ModelsUsed     []string               `json:"models_used,omitempty"`
 	ProvidersUsed  []string               `json:"providers_used,omitempty"`
-	SkillsCatalog  []string               `json:"skills_catalog,omitempty"`
+	SkillsCatalog  []DSHSkillEntry        `json:"skills_catalog,omitempty"`
 	ToolsAvailable []string               `json:"tools_available,omitempty"`
 }
 

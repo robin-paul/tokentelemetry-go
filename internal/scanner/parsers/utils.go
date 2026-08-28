@@ -47,9 +47,31 @@ func ExtractProjectName(filePath string) string {
 		}
 	}
 
-	// Direct parent directory if not generic
+	// If file is session.jsonl / transcript.jsonl inside a session ID folder, check grandparent directory first
+	fileName := filepath.Base(clean)
+	rawName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	if secondExt := filepath.Ext(rawName); secondExt != "" {
+		rawName = strings.TrimSuffix(rawName, secondExt)
+	}
 	dir := filepath.Dir(clean)
 	base := filepath.Base(dir)
+	if rawName == "session" || rawName == "transcript" || rawName == "transcript_full" || rawName == "events" {
+		grandparent := filepath.Base(filepath.Dir(dir))
+		if !isGenericDir(grandparent) {
+			if strings.Contains(grandparent, "%2F") || strings.Contains(grandparent, "%2f") || strings.HasPrefix(grandparent, "-") {
+				decoded, err := url.QueryUnescape(grandparent)
+				if err == nil && strings.Contains(decoded, "/") {
+					subparts := strings.Split(strings.Trim(decoded, "/"), "/")
+					if len(subparts) > 0 {
+						return subparts[len(subparts)-1]
+					}
+				}
+			}
+			return grandparent
+		}
+	}
+
+	// Direct parent directory if not generic
 	if !isGenericDir(base) {
 		return base
 	}
