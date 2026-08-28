@@ -61,6 +61,7 @@ func (d *DB) UpsertSession(ctx context.Context, s *models.Session) error {
 		parent_session_id = excluded.parent_session_id,
 		subagent_type = excluded.subagent_type;
 	`
+	s.ProjectName = models.CanonicalProject(s.ProjectName)
 	now := time.Now().UTC()
 	if s.CreatedAt.IsZero() {
 		s.CreatedAt = now
@@ -87,6 +88,7 @@ func (d *DB) UpsertSession(ctx context.Context, s *models.Session) error {
 func (d *DB) SaveSessionWithTurnsAndSubagents(ctx context.Context, s *models.Session) error {
 	return d.WithTx(ctx, func(tx *sql.Tx) error {
 		// 1. Upsert session
+		s.ProjectName = models.CanonicalProject(s.ProjectName)
 		upsertSessionQuery := `
 		INSERT INTO sessions (
 			id, session_id, agent_name, project_name, file_path, machine_id,
@@ -528,7 +530,7 @@ func buildSessionFilterQuery(params models.FilterParams) (fromSQL string, whereS
 		placeholders := make([]string, len(projects))
 		for i, p := range projects {
 			placeholders[i] = "?"
-			args = append(args, p)
+			args = append(args, models.CanonicalProject(p))
 		}
 		where = append(where, fmt.Sprintf("s.project_name IN (%s)", strings.Join(placeholders, ",")))
 	}

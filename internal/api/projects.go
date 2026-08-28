@@ -24,7 +24,7 @@ func canonicalRepo(path string) string {
 	if path == "" {
 		return ""
 	}
-	cleanPath := filepath.Clean(path)
+	cleanPath := models.CanonicalProject(filepath.Clean(path))
 
 	canonicalRepoCacheMu.RLock()
 	cached, ok := canonicalRepoCache[cleanPath]
@@ -53,16 +53,16 @@ func canonicalRepo(path string) string {
 						parent := filepath.Dir(gitdir)
 						grandparent := filepath.Dir(parent)
 						if filepath.Base(parent) == "worktrees" && filepath.Base(grandparent) == ".git" {
-							result = filepath.Dir(grandparent)
+							result = models.CanonicalProject(filepath.Dir(grandparent))
 							break
 						}
 					}
 				}
-				result = cur
+				result = models.CanonicalProject(cur)
 				break
 			} else {
 				// .git is a directory (main repository checkout)
-				result = cur
+				result = models.CanonicalProject(cur)
 				break
 			}
 		}
@@ -76,9 +76,11 @@ func canonicalRepo(path string) string {
 
 	if result == cleanPath {
 		if loc := worktreePathRegex.FindStringIndex(cleanPath); loc != nil {
-			result = cleanPath[:loc[0]]
+			result = models.CanonicalProject(cleanPath[:loc[0]])
 		}
 	}
+
+	result = models.CanonicalProject(result)
 
 	canonicalRepoCacheMu.Lock()
 	canonicalRepoCache[cleanPath] = result
@@ -107,7 +109,7 @@ func repoWorktreePaths(repo string) []string {
 		wp = strings.TrimSuffix(wp, "/.git")
 		wp = strings.TrimSuffix(wp, "\\.git")
 		if wp != "" {
-			paths = append(paths, filepath.Clean(wp))
+			paths = append(paths, models.CanonicalProject(filepath.Clean(wp)))
 		}
 	}
 	return paths
@@ -117,6 +119,7 @@ func enrichProjectList(projects []models.ProjectSummary) []models.ProjectSummary
 	projectByPath := make(map[string]*models.ProjectSummary)
 	for i := range projects {
 		p := &projects[i]
+		p.ProjectName = models.CanonicalProject(p.ProjectName)
 		p.Name = filepath.Base(filepath.Clean(p.ProjectName))
 		p.Path = p.ProjectName
 		if _, err := os.Stat(p.Path); err == nil {
@@ -124,7 +127,7 @@ func enrichProjectList(projects []models.ProjectSummary) []models.ProjectSummary
 		} else {
 			p.Status = "missing"
 		}
-		p.CanonicalRepo = canonicalRepo(p.Path)
+		p.CanonicalRepo = models.CanonicalProject(canonicalRepo(p.Path))
 		if p.CanonicalRepo != "" && p.CanonicalRepo != p.Path {
 			p.IsWorktree = true
 			p.ParentPath = p.CanonicalRepo
@@ -141,13 +144,13 @@ func enrichProjectList(projects []models.ProjectSummary) []models.ProjectSummary
 	for _, p := range projects {
 		if p.CanonicalRepo != "" {
 			for _, wp := range repoWorktreePaths(p.CanonicalRepo) {
-				wtToRepo[wp] = p.CanonicalRepo
+				wtToRepo[models.CanonicalProject(wp)] = p.CanonicalRepo
 			}
 		}
 	}
 	for _, p := range projects {
 		if !p.IsWorktree {
-			if repo, ok := wtToRepo[p.Path]; ok && repo != p.Path {
+			if repo, ok := wtToRepo[models.CanonicalProject(p.Path)]; ok && repo != p.Path {
 				p.CanonicalRepo = repo
 				p.IsWorktree = true
 				p.ParentPath = repo
@@ -279,8 +282,20 @@ func (s *Server) GetProjects(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	var filtered []models.ProjectSummary
 	for _, p := range projects {
-		if !includeHidden && (s.hiddenProjects[p.ProjectName] || s.hiddenProjects[p.Path]) {
-			continue
+		if !includeHidden {
+			pCanon := models.CanonicalProject(p.ProjectName)
+			pathCanon := models.CanonicalProject(p.Path)
+			isHidden := false
+			for h := range s.hiddenProjects {
+				hCanon := models.CanonicalProject(h)
+				if hCanon == pCanon || hCanon == pathCanon {
+					isHidden = true
+					break
+				}
+			}
+			if isHidden {
+				continue
+			}
 		}
 		filtered = append(filtered, p)
 	}
@@ -302,6 +317,7 @@ func (s *Server) GetProjectDetail(w http.ResponseWriter, r *http.Request) {
 		projectName = chi.URLParam(r, "name")
 	}
 	projectName = strings.TrimPrefix(projectName, "/")
+	reqCanon := models.CanonicalProject(projectName)
 
 	rawProjects, err := s.db.GetProjects(r.Context())
 	if err != nil {
@@ -313,7 +329,7 @@ func (s *Server) GetProjectDetail(w http.ResponseWriter, r *http.Request) {
 	var foundSummary *models.ProjectSummary
 	for i := range enrichedList {
 		p := &enrichedList[i]
-		if p.ProjectName == projectName || p.Path == projectName || p.Name == projectName {
+		if models.CanonicalProject(p.ProjectName) == reqCanon || models.CanonicalProject(p.Path) == reqCanon || p.Name == projectName {
 			foundSummary = p
 			break
 		}
@@ -321,7 +337,7 @@ func (s *Server) GetProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	if foundSummary == nil {
 		// Try standard DB lookup
-		summary, sessions, err := s.db.GetProjectDetail(r.Context(), projectName)
+		summary, sessions, err := s.db.GetProjectDetail(r.Context(), reqCanon)
 		if err != nil {
 			respondError(w, http.StatusNotFound, "Project not found")
 			return
@@ -341,7 +357,7 @@ func (s *Server) GetProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if foundSummary.Synthesized && foundSummary.IsRepoRoot {
 		for _, wt := range foundSummary.Worktrees {
 			wtSessions, _, err := s.db.ListSessions(r.Context(), models.FilterParams{
-				Project: wt.Path,
+				Project: models.CanonicalProject(wt.Path),
 				Limit:   50,
 			})
 			if err == nil {
@@ -350,7 +366,7 @@ func (s *Server) GetProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		dbSessions, _, err := s.db.ListSessions(r.Context(), models.FilterParams{
-			Project: foundSummary.ProjectName,
+			Project: models.CanonicalProject(foundSummary.ProjectName),
 			Limit:   100,
 		})
 		if err == nil {
@@ -373,13 +389,18 @@ func (s *Server) GetHiddenProjects(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var hidden []string
+	hiddenMap := make(map[string]bool)
 	for p := range s.hiddenProjects {
+		hiddenMap[models.CanonicalProject(p)] = true
+	}
+	var hidden []string
+	for p := range hiddenMap {
 		hidden = append(hidden, p)
 	}
 	if hidden == nil {
 		hidden = []string{}
 	}
+	sort.Strings(hidden)
 	respondJSON(w, http.StatusOK, hidden)
 }
 
@@ -393,12 +414,19 @@ func (s *Server) HideProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	canonPath := models.CanonicalProject(body.Path)
+
 	s.mu.Lock()
-	s.hiddenProjects[body.Path] = true
-	var hidden []string
+	s.hiddenProjects[canonPath] = true
+	hiddenMap := make(map[string]bool)
 	for p := range s.hiddenProjects {
+		hiddenMap[models.CanonicalProject(p)] = true
+	}
+	var hidden []string
+	for p := range hiddenMap {
 		hidden = append(hidden, p)
 	}
+	sort.Strings(hidden)
 	s.mu.Unlock()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{
@@ -417,12 +445,25 @@ func (s *Server) UnhideProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	target := models.CanonicalProject(body.Path)
+
 	s.mu.Lock()
-	delete(s.hiddenProjects, body.Path)
+	newHidden := make(map[string]bool)
+	for p := range s.hiddenProjects {
+		canon := models.CanonicalProject(p)
+		if canon != target {
+			newHidden[canon] = true
+		}
+	}
+	s.hiddenProjects = newHidden
 	var hidden []string
 	for p := range s.hiddenProjects {
 		hidden = append(hidden, p)
 	}
+	if hidden == nil {
+		hidden = []string{}
+	}
+	sort.Strings(hidden)
 	s.mu.Unlock()
 
 	respondJSON(w, http.StatusOK, map[string]interface{}{

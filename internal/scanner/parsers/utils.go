@@ -8,7 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/robin-paul/tokentelemetry-go/internal/models"
 )
+
+// CanonicalProject folds separator variants of the same folder into one project identity.
+func CanonicalProject(path string) string {
+	return models.CanonicalProject(path)
+}
 
 func isGenericDir(name string) bool {
 	switch name {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -215,3 +216,163 @@ func TestProjectAPIWithWorktrees(t *testing.T) {
 		t.Errorf("expected 1 worktree in detail, got %d", len(detailResp.Project.Worktrees))
 	}
 }
+
+func TestSeparatorVariantsYieldSingleProjectCard(t *testing.T) {
+	_, db, router, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Seed 2 sessions from the same project folder with different separator styles
+	sess1 := models.Session{
+		ID:           "s-win-back",
+		SessionID:    "s-win-back",
+		AgentName:    "claude",
+		ProjectName:  `C:\Users\dev\myproject`,
+		FilePath:     `C:\Users\dev\myproject\log1.json`,
+		StartTime:    time.Now().Add(-1 * time.Hour),
+		EndTime:      time.Now(),
+		InputTokens:  1000,
+		OutputTokens: 200,
+		NetCostUSD:   0.05,
+		Status:       "completed",
+	}
+	sess2 := models.Session{
+		ID:           "s-win-fwd",
+		SessionID:    "s-win-fwd",
+		AgentName:    "claude",
+		ProjectName:  "C:/Users/dev/myproject/",
+		FilePath:     "C:/Users/dev/myproject/log2.json",
+		StartTime:    time.Now().Add(-30 * time.Minute),
+		EndTime:      time.Now(),
+		InputTokens:  2000,
+		OutputTokens: 400,
+		NetCostUSD:   0.10,
+		Status:       "completed",
+	}
+
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, &sess1); err != nil {
+		t.Fatalf("failed to save sess1: %v", err)
+	}
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, &sess2); err != nil {
+		t.Fatalf("failed to save sess2: %v", err)
+	}
+
+	// GET /api/projects must return exactly 1 card
+	req := newLocalRequest("GET", "/api/projects", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var projects []models.ProjectSummary
+	_ = json.Unmarshal(w.Body.Bytes(), &projects)
+	if len(projects) != 1 {
+		t.Fatalf("expected exactly 1 project card for separator variants, got %d: %+v", len(projects), projects)
+	}
+
+	card := projects[0]
+	if card.ProjectName != "C:/Users/dev/myproject" {
+		t.Errorf("expected canonical card path 'C:/Users/dev/myproject', got %q", card.ProjectName)
+	}
+	if card.SessionCount != 2 {
+		t.Errorf("expected session_count 2, got %d", card.SessionCount)
+	}
+	if card.TotalTokens != 3600 {
+		t.Errorf("expected total tokens 3600, got %d", card.TotalTokens)
+	}
+}
+
+func TestHiddenProjectAcrossSeparatorStyles(t *testing.T) {
+	_, db, router, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	sess := models.Session{
+		ID:           "s-win-hide",
+		SessionID:    "s-win-hide",
+		AgentName:    "claude",
+		ProjectName:  "C:/Users/dev/myproject",
+		FilePath:     "C:/Users/dev/myproject/log.json",
+		StartTime:    time.Now().Add(-1 * time.Hour),
+		EndTime:      time.Now(),
+		InputTokens:  1000,
+		OutputTokens: 200,
+		NetCostUSD:   0.05,
+		Status:       "completed",
+	}
+	if err := db.SaveSessionWithTurnsAndSubagents(ctx, &sess); err != nil {
+		t.Fatalf("failed to save session: %v", err)
+	}
+
+	// 1. Hide using Windows backslash form
+	hideBody := `{"path":"C:\\Users\\dev\\myproject\\"}`
+	req := newLocalRequest("POST", "/config/hide", bytes.NewBufferString(hideBody))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("hide failed with %d: %s", w.Code, w.Body.String())
+	}
+
+	// 2. Verify GET /config/hidden has canonical form
+	req = newLocalRequest("GET", "/config/hidden", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	var hidden []string
+	_ = json.Unmarshal(w.Body.Bytes(), &hidden)
+	if len(hidden) != 1 || hidden[0] != "C:/Users/dev/myproject" {
+		t.Fatalf("expected hidden to contain 'C:/Users/dev/myproject', got %v", hidden)
+	}
+
+	// 3. Verify GET /api/projects excludes the card
+	req = newLocalRequest("GET", "/api/projects", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	var visible []models.ProjectSummary
+	_ = json.Unmarshal(w.Body.Bytes(), &visible)
+	if len(visible) != 0 {
+		t.Errorf("expected project to be hidden, but got %d projects", len(visible))
+	}
+
+	// 4. Verify GET /api/projects?include_hidden=true includes the card
+	req = newLocalRequest("GET", "/api/projects?include_hidden=true", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	var allProjects []models.ProjectSummary
+	_ = json.Unmarshal(w.Body.Bytes(), &allProjects)
+	if len(allProjects) != 1 {
+		t.Errorf("expected 1 project with include_hidden=true, got %d", len(allProjects))
+	}
+
+	// 5. Unhide using forward-slash form
+	unhideBody := `{"path":"C:/Users/dev/myproject"}`
+	req = newLocalRequest("POST", "/config/unhide", bytes.NewBufferString(unhideBody))
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("unhide failed with %d: %s", w.Code, w.Body.String())
+	}
+
+	// 6. Verify GET /config/hidden is now empty
+	req = newLocalRequest("GET", "/config/hidden", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	hidden = nil
+	_ = json.Unmarshal(w.Body.Bytes(), &hidden)
+	if len(hidden) != 0 {
+		t.Errorf("expected hidden to be empty after unhide, got %v", hidden)
+	}
+
+	// 7. Verify GET /api/projects includes the card again
+	req = newLocalRequest("GET", "/api/projects", nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	visible = nil
+	_ = json.Unmarshal(w.Body.Bytes(), &visible)
+	if len(visible) != 1 {
+		t.Errorf("expected project to be visible again, got %d", len(visible))
+	}
+}
+

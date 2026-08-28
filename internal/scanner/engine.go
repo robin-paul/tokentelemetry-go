@@ -288,6 +288,7 @@ func (e *Engine) ScanFile(ctx context.Context, filePath string) (*models.Session
 	if projectName == "" {
 		projectName = parsers.ExtractProjectName(filePath)
 	}
+	projectName = models.CanonicalProject(projectName)
 
 	// Build models.Session
 	sess := &models.Session{

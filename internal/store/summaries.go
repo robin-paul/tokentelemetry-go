@@ -34,6 +34,7 @@ func (d *DB) UpsertDailySummary(ctx context.Context, s *models.DailySummary) err
 		total_cost_usd = total_cost_usd + excluded.total_cost_usd,
 		total_duration_seconds = total_duration_seconds + excluded.total_duration_seconds;
 	`
+	s.ProjectName = models.CanonicalProject(s.ProjectName)
 	return d.WithTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, query,
 			s.Date, s.AgentName, s.ProjectName, s.ModelName,
@@ -86,6 +87,9 @@ func (d *DB) RollupDailySummariesForDate(ctx context.Context, date string) error
 
 // QueryDailySummaries retrieves time-series summaries filtered by date range and dimensions.
 func (d *DB) QueryDailySummaries(ctx context.Context, from, to, agent, project, model string) ([]models.DailySummary, error) {
+	if project != "" {
+		project = models.CanonicalProject(project)
+	}
 	var whereClauses []string
 	var args []interface{}
 
@@ -223,6 +227,9 @@ func (d *DB) QueryDailySummaries(ctx context.Context, from, to, agent, project, 
 
 // GetStatsOverview calculates system-wide overview statistics.
 func (d *DB) GetStatsOverview(ctx context.Context, from, to, agent, project string) (*models.StatsOverview, error) {
+	if project != "" {
+		project = models.CanonicalProject(project)
+	}
 	var whereClauses []string
 	var args []interface{}
 
@@ -416,6 +423,7 @@ func (d *DB) GetProjects(ctx context.Context) ([]models.ProjectSummary, error) {
 
 // GetProjectDetail retrieves project aggregations and recent sessions for a specific project.
 func (d *DB) GetProjectDetail(ctx context.Context, projectName string) (*models.ProjectSummary, []models.Session, error) {
+	projectName = models.CanonicalProject(projectName)
 	query := `
 	SELECT
 		project_name,

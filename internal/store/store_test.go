@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -626,3 +627,105 @@ func TestFTS5AndMultiCriteriaSearch(t *testing.T) {
 		t.Errorf("unexpected tokens sort order: %v, %v, %v", res[0].ID, res[1].ID, res[2].ID)
 	}
 }
+
+func TestCanonicalProjectNormalizationAndMigration(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1. Ingest session with Windows-style backslashes
+	sess := &models.Session{
+		ID:            "win-sess-1",
+		SessionID:     "win-sess-1",
+		AgentName:     "claude_code",
+		ProjectName:   `C:\Users\dev\myproject\`,
+		FilePath:      `C:\Users\dev\myproject\log.json`,
+		StartTime:     time.Now().Add(-1 * time.Hour),
+		EndTime:       time.Now(),
+		ModelRaw:      "claude-3-7-sonnet",
+		ModelResolved: "claude-3-7-sonnet",
+		InputTokens:   1000,
+		OutputTokens:  500,
+		Status:        "completed",
+	}
+
+	if err := db.UpsertSession(ctx, sess); err != nil {
+		t.Fatalf("failed to upsert session: %v", err)
+	}
+
+	// 2. Assert stored session has canonical project path
+	fetched, err := db.GetSession(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+	if fetched.ProjectName != "C:/Users/dev/myproject" {
+		t.Errorf("expected canonical project 'C:/Users/dev/myproject', got %q", fetched.ProjectName)
+	}
+
+	// 3. Assert filtering by backslash style matches canonical path
+	matched, total, err := db.ListSessions(ctx, models.FilterParams{
+		Project: `C:\Users\dev\myproject`,
+	})
+	if err != nil {
+		t.Fatalf("failed to list sessions: %v", err)
+	}
+	if total != 1 || len(matched) != 1 || matched[0].ID != sess.ID {
+		t.Errorf("expected 1 match when filtering by Windows backslash path, got total %d, results %v", total, matched)
+	}
+
+	// 4. Assert GetProjectDetail resolves with backslash path
+	detail, _, err := db.GetProjectDetail(ctx, `C:\Users\dev\myproject\`)
+	if err != nil {
+		t.Fatalf("failed to get project detail: %v", err)
+	}
+	if detail.ProjectName != "C:/Users/dev/myproject" {
+		t.Errorf("expected detail project name 'C:/Users/dev/myproject', got %q", detail.ProjectName)
+	}
+
+	// 5. Test store migration backfill
+	// Directly insert legacy un-canonicalized rows into sessions and daily_summaries
+	legacyID := "legacy-win-sess"
+	legacyPath := `D:\OldProjects\SubDir\`
+	insertLegacyQuery := `
+		INSERT INTO sessions (
+			id, session_id, agent_name, project_name, file_path, machine_id,
+			created_at, updated_at, start_time, end_time, duration_seconds,
+			model_raw, model_resolved, input_tokens, output_tokens,
+			status
+		) VALUES (
+			?, ?, 'claude', ?, '/legacy.json', 'local',
+			CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '2026-08-20 12:00:00', '2026-08-20 13:00:00', 3600,
+			'claude-3-7-sonnet', 'claude-3-7-sonnet', 500, 100,
+			'completed'
+		);
+	`
+	if err := db.WithTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, insertLegacyQuery, legacyID, legacyID, legacyPath)
+		return err
+	}); err != nil {
+		t.Fatalf("failed to insert legacy session: %v", err)
+	}
+
+	// Re-run migration 0006
+	if err := db.WithTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = 6;`)
+		return err
+	}); err != nil {
+		t.Fatalf("failed to delete migration 6: %v", err)
+	}
+
+	if err := db.Migrate(ctx); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	// Verify legacy row was backfilled to canonical identity
+	legacyFetched, err := db.GetSession(ctx, legacyID)
+	if err != nil {
+		t.Fatalf("failed to get legacy session: %v", err)
+	}
+	if legacyFetched.ProjectName != "D:/OldProjects/SubDir" {
+		t.Errorf("expected backfilled project 'D:/OldProjects/SubDir', got %q", legacyFetched.ProjectName)
+	}
+}
+
