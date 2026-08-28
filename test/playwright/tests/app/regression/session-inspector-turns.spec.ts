@@ -282,4 +282,110 @@ test.describe('Session turn ingestion, rich message rendering, and deep inspecto
             });
         }
     );
+
+    test(
+        'should support split view separating Dialogue and Brain columns with toggle support',
+        { tag: '@regression' },
+        async ({ sessionsPage, sessionDetailPage, transcriptFixture, page }) => {
+            const projectName = 'e2e-split-view-project';
+            const sessionId = `claude-split-${Date.now()}`;
+
+            await test.step('GIVEN a session with user prompt, assistant thinking, tool calls, and text response', async () => {
+                const now = Date.now();
+                const rawTranscript = [
+                    JSON.stringify({
+                        type: 'user',
+                        sessionId: sessionId,
+                        timestamp: new Date(now - 10000).toISOString(),
+                        message: {
+                            content: [{ type: 'text', text: 'Can you inspect the project files?' }],
+                        },
+                    }),
+                    JSON.stringify({
+                        type: 'assistant',
+                        sessionId: sessionId,
+                        timestamp: new Date(now - 5000).toISOString(),
+                        message: {
+                            model: 'claude-3-7-sonnet',
+                            usage: { input_tokens: 2000, output_tokens: 500 },
+                            content: [
+                                {
+                                    type: 'thinking',
+                                    thinking: 'Let me list the files in the directory to understand the structure.',
+                                },
+                                {
+                                    type: 'tool_use',
+                                    id: 'tool_list_files_1',
+                                    name: 'list_directory',
+                                    input: { path: '/workspace' },
+                                },
+                                {
+                                    type: 'text',
+                                    text: 'I have examined the project files. Everything is structured properly.',
+                                },
+                            ],
+                        },
+                    }),
+                ].join('\n');
+
+                await transcriptFixture.writeRawTranscript(
+                    `.claude/projects/${projectName}/${sessionId}.jsonl`,
+                    rawTranscript
+                );
+            });
+
+            await test.step('WHEN the user opens the session in the Session Inspector', async () => {
+                await sessionsPage.open();
+                await expect(sessionsPage.sessionTable).toBeVisible();
+
+                await sessionsPage.search(projectName);
+                const sessionRow = sessionsPage.getSessionRow(projectName).first();
+                await expect(sessionRow).toBeVisible();
+                await sessionRow.click();
+                await page.waitForURL(/\/sessions\/.+/);
+
+                await expect(sessionDetailPage.sessionIdHeading).toBeVisible();
+            });
+
+            await test.step('THEN default unified view renders single column without regression', async () => {
+                await expect(sessionDetailPage.unifiedColumn).toBeVisible();
+                await expect(sessionDetailPage.splitViewContainer).not.toBeVisible();
+                await expect(sessionDetailPage.userTurnCards).toHaveCount(1);
+                await expect(sessionDetailPage.assistantTurnCards).toHaveCount(1);
+            });
+
+            await test.step('WHEN the user toggles Split View on', async () => {
+                await expect(sessionDetailPage.toggleSplitViewButton).toBeVisible();
+                await sessionDetailPage.toggleSplitViewButton.click();
+            });
+
+            await test.step('THEN the inspector renders two distinct columns: Dialogue and Brain', async () => {
+                await expect(sessionDetailPage.splitViewContainer).toBeVisible();
+                await expect(sessionDetailPage.dialogueColumn).toBeVisible();
+                await expect(sessionDetailPage.brainColumn).toBeVisible();
+                await expect(sessionDetailPage.dialogueColumnHeader).toContainText('User & Agent Dialogue');
+                await expect(sessionDetailPage.brainColumnHeader).toContainText('Internal Reasoning & Tools');
+            });
+
+            await test.step('AND User/assistant text appears in Dialogue column; reasoning/tools appear in Brain column', async () => {
+                // Dialogue column contains User Prompt and Assistant text Response
+                await expect(sessionDetailPage.dialogueColumn.getByText('Can you inspect the project files?')).toBeVisible();
+                await expect(sessionDetailPage.dialogueColumn.getByText('I have examined the project files')).toBeVisible();
+                // Dialogue column does NOT contain thinking card
+                await expect(sessionDetailPage.dialogueColumn.getByText('Let me list the files in the directory')).not.toBeVisible();
+
+                // Brain column contains Reasoning / Thinking and Tool Invocations
+                await expect(sessionDetailPage.brainColumn.getByText('Let me list the files in the directory')).toBeVisible();
+                await expect(sessionDetailPage.brainColumn.getByText('list_directory')).toBeVisible();
+                // Brain column does NOT contain dialogue text response
+                await expect(sessionDetailPage.brainColumn.getByText('I have examined the project files')).not.toBeVisible();
+            });
+
+            await test.step('WHEN toggling back to Unified view', async () => {
+                await sessionDetailPage.toggleSplitViewButton.click();
+                await expect(sessionDetailPage.unifiedColumn).toBeVisible();
+                await expect(sessionDetailPage.splitViewContainer).not.toBeVisible();
+            });
+        }
+    );
 });

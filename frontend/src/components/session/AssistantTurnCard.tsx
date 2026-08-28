@@ -1,19 +1,20 @@
 import React from 'react';
-import { Bot, Clock, Cpu } from 'lucide-react';
+import { Bot, Brain, Clock, Cpu } from 'lucide-react';
 import { formatCost, formatTokens, formatDate } from '../../lib/format';
 import { getAgentMeta } from '../../lib/agents';
-import type { MessageTurn } from '../../lib/types';
+import type { MessageTurn, ToolResult } from '../../lib/types';
 import { ResponseBody } from './ResponseBody';
 import { ReasoningCard } from './ReasoningCard';
 import { ToolInvocationCard } from './ToolInvocationCard';
 
-interface AssistantTurnCardProps {
+export interface AssistantTurnCardProps {
   turn: MessageTurn;
   turnNumber?: number;
   agentName: string;
   isActive?: boolean;
   searchQuery?: string;
   allToolResults?: ToolResult[];
+  mode?: 'all' | 'dialogue' | 'brain';
   onClick?: () => void;
 }
 
@@ -24,6 +25,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
   isActive = false,
   searchQuery = '',
   allToolResults = [],
+  mode = 'all',
   onClick,
 }) => {
   const meta = getAgentMeta(agentName);
@@ -53,26 +55,34 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
           : 'border-white/10 hover:border-white/20'
       }`}
     >
-      {/* Left accent bar dynamically tinted to agent identity */}
+      {/* Left accent bar dynamically tinted to agent identity or brain emerald */}
       <div
         className="absolute top-0 left-0 w-1.5 h-full"
-        style={{ backgroundColor: meta.color || '#06b6d4' }}
+        style={{ backgroundColor: mode === 'brain' ? '#10b981' : (meta.color || '#06b6d4') }}
       />
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pl-1">
         <div className="flex items-center gap-2">
-          <div
-            className="w-6 h-6 rounded-md flex items-center justify-center"
-            style={{ color: meta.color, backgroundColor: meta.bg }}
-          >
-            <Bot className="w-3.5 h-3.5" />
-          </div>
+          {mode === 'brain' ? (
+            <div
+              className="w-6 h-6 rounded-md flex items-center justify-center bg-emerald-500/20 text-emerald-400"
+            >
+              <Brain className="w-3.5 h-3.5" />
+            </div>
+          ) : (
+            <div
+              className="w-6 h-6 rounded-md flex items-center justify-center"
+              style={{ color: meta.color, backgroundColor: meta.bg }}
+            >
+              <Bot className="w-3.5 h-3.5" />
+            </div>
+          )}
           <span
             className="text-[11px] font-black uppercase tracking-[0.16em]"
-            style={{ color: meta.color }}
+            style={{ color: mode === 'brain' ? '#34d399' : meta.color }}
           >
-            {meta.label} Response
+            {mode === 'brain' ? `${meta.label} Brain & Tools` : `${meta.label} Response`}
           </span>
           <span className="text-[11px] font-mono text-gray-500">
             Turn #{displayTurn}
@@ -111,7 +121,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
       {/* Body Section */}
       <div className="pl-1 space-y-3">
         {/* Reasoning / Thinking block if present */}
-        {(turn.thinking || turn.reasoning_effort) && (
+        {mode !== 'dialogue' && (turn.thinking || turn.reasoning_effort) && (
           <ReasoningCard
             thinking={turn.thinking}
             reasoningEffort={turn.reasoning_effort}
@@ -120,7 +130,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
         )}
 
         {/* Primary Markdown Text Response */}
-        {turn.content && (
+        {mode !== 'brain' && turn.content && (
           <ResponseBody
             content={turn.content}
             defaultMode="md"
@@ -129,7 +139,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
         )}
 
         {/* Tool Invocations */}
-        {toolCalls.length > 0 ? (
+        {mode !== 'dialogue' && (toolCalls.length > 0 ? (
           <div className="space-y-2 pt-1">
             {toolCalls.map((tc, idx) => {
               const matchedResult =
@@ -157,7 +167,7 @@ export const AssistantTurnCard: React.FC<AssistantTurnCardProps> = ({
               ))}
             </div>
           )
-        )}
+        ))}
       </div>
     </div>
   );

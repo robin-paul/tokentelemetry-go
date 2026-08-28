@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   ArrowLeft,
   Bot,
+  Brain,
   Sparkles,
   Coins,
   Cpu,
@@ -9,6 +10,8 @@ import {
   Copy,
   Check,
   PanelRight,
+  Columns2,
+  User,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { formatCost, formatDuration, formatTokens, formatDate } from '../lib/format';
@@ -34,6 +37,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
   const [revealedCount, setRevealedCount] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [splitView, setSplitView] = useState<boolean>(false);
   const [categoryFilter, setCategoryFilter] = useState<TurnFilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState(false);
@@ -283,6 +287,20 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
           <div className="flex items-center gap-3">
             <button
               type="button"
+              data-testid="toggle-split-view-button"
+              data-test="toggle-split-view-button"
+              onClick={() => setSplitView(!splitView)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition-colors ${
+                splitView
+                  ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 hover:bg-cyan-500/30'
+                  : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <Columns2 className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{splitView ? 'Unified View' : 'Split View'}</span>
+            </button>
+            <button
+              type="button"
               data-testid="toggle-sidebar-button"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-gray-300 hover:text-white transition-colors"
@@ -420,8 +438,134 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
             <div className="p-8 text-center text-xs text-gray-500 border border-white/5 rounded-xl bg-[#11141a]">
               No message turns match the current filter or search criteria.
             </div>
+          ) : splitView ? (
+            <div data-testid="split-view-container" data-test="split-view-container" className="space-y-4">
+              {/* Split View Header */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center pb-2 border-b border-white/10">
+                <div
+                  data-testid="dialogue-column-header"
+                  data-test="dialogue-column-header"
+                  className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-400 flex items-center gap-2"
+                >
+                  <User className="w-3.5 h-3.5 text-blue-400" /> User & Agent Dialogue
+                </div>
+                <div
+                  data-testid="brain-column-header"
+                  data-test="brain-column-header"
+                  className="text-[11px] font-black uppercase tracking-[0.16em] text-emerald-400 flex items-center gap-2"
+                >
+                  <Brain className="w-3.5 h-3.5 text-emerald-400" /> Internal Reasoning & Tools
+                </div>
+              </div>
+
+              {/* Dual Columns */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative items-start">
+                {/* Left: Dialogue Column */}
+                <div data-testid="dialogue-column" data-test="dialogue-column" className="space-y-4">
+                  {filteredTurns.map((turn, index) => {
+                    const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
+                    const isUser = turn.role === 'user';
+                    const isActive = originalIndex === activeStep;
+
+                    if (isUser) {
+                      return (
+                        <div
+                          key={turn.id || `dialogue-${originalIndex}`}
+                          ref={(el) => {
+                            turnRefs.current[originalIndex] = el;
+                          }}
+                        >
+                          <UserTurnCard
+                            turn={turn}
+                            turnNumber={originalIndex + 1}
+                            isActive={isActive}
+                            searchQuery={searchQuery}
+                            onClick={() => handleStepSeek(originalIndex)}
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (turn.content && turn.content.trim().length > 0) {
+                      return (
+                        <div
+                          key={turn.id || `dialogue-${originalIndex}`}
+                          ref={(el) => {
+                            turnRefs.current[originalIndex] = el;
+                          }}
+                        >
+                          <AssistantTurnCard
+                            turn={turn}
+                            turnNumber={originalIndex + 1}
+                            agentName={session.agent_name}
+                            isActive={isActive}
+                            searchQuery={searchQuery}
+                            allToolResults={allToolResults}
+                            mode="dialogue"
+                            onClick={() => handleStepSeek(originalIndex)}
+                          />
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                </div>
+
+                {/* Right: Brain Column */}
+                <div
+                  data-testid="brain-column"
+                  data-test="brain-column"
+                  className="space-y-4 border-t md:border-t-0 md:border-l border-white/10 md:pl-6"
+                >
+                  {filteredTurns.map((turn, index) => {
+                    const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
+                    const isActive = originalIndex === activeStep;
+
+                    const hasThinking = Boolean(turn.thinking && turn.thinking.trim().length > 0);
+                    const hasReasoningEffort = Boolean(turn.reasoning_effort && turn.reasoning_effort.trim().length > 0);
+                    const hasToolCalls = Boolean(turn.tool_calls && turn.tool_calls.length > 0);
+                    let hasLegacyTools = Boolean(turn.tools_invoked && turn.tools_invoked.length > 0);
+                    if (!hasLegacyTools && turn.tools_invoked_json) {
+                      try {
+                        const parsed = JSON.parse(turn.tools_invoked_json);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                          hasLegacyTools = true;
+                        }
+                      } catch {}
+                    }
+
+                    if (turn.role !== 'user' && (hasThinking || hasReasoningEffort || hasToolCalls || hasLegacyTools)) {
+                      return (
+                        <div
+                          key={turn.id || `brain-${originalIndex}`}
+                          ref={(el) => {
+                            if (!turn.content) {
+                              turnRefs.current[originalIndex] = el;
+                            }
+                          }}
+                        >
+                          <AssistantTurnCard
+                            turn={turn}
+                            turnNumber={originalIndex + 1}
+                            agentName={session.agent_name}
+                            isActive={isActive}
+                            searchQuery={searchQuery}
+                            allToolResults={allToolResults}
+                            mode="brain"
+                            onClick={() => handleStepSeek(originalIndex)}
+                          />
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                </div>
+              </div>
+            </div>
           ) : (
-            <div className="space-y-4">
+            <div data-testid="unified-column" data-test="unified-column" className="space-y-4">
               {filteredTurns.map((turn, index) => {
                 const originalIndex = turn.turn_index >= 0 ? turn.turn_index : index;
                 const isUser = turn.role === 'user';
@@ -450,6 +594,7 @@ export const SessionDetail: React.FC<SessionDetailProps> = ({ sessionId: propSes
                         isActive={isActive}
                         searchQuery={searchQuery}
                         allToolResults={allToolResults}
+                        mode="all"
                         onClick={() => handleStepSeek(originalIndex)}
                       />
                     )}

@@ -161,6 +161,34 @@ export class SessionDetailPage {
         return this.page.locator('[data-testid="toggle-sidebar-button"], [data-test="toggle-sidebar-button"]');
     }
 
+    get toggleSplitViewButton(): Locator {
+        return this.page.locator('[data-testid="toggle-split-view-button"], [data-test="toggle-split-view-button"]');
+    }
+
+    get splitViewContainer(): Locator {
+        return this.page.locator('[data-testid="split-view-container"], [data-test="split-view-container"]');
+    }
+
+    get dialogueColumn(): Locator {
+        return this.page.locator('[data-testid="dialogue-column"], [data-test="dialogue-column"]');
+    }
+
+    get brainColumn(): Locator {
+        return this.page.locator('[data-testid="brain-column"], [data-test="brain-column"]');
+    }
+
+    get dialogueColumnHeader(): Locator {
+        return this.page.locator('[data-testid="dialogue-column-header"], [data-test="dialogue-column-header"]');
+    }
+
+    get brainColumnHeader(): Locator {
+        return this.page.locator('[data-testid="brain-column-header"], [data-test="brain-column-header"]');
+    }
+
+    get unifiedColumn(): Locator {
+        return this.page.locator('[data-testid="unified-column"], [data-test="unified-column"]');
+    }
+
     // ==================== Actions ====================
 
     /**

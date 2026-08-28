@@ -67,7 +67,7 @@ export default defineConfig({
         timeout: 10000,
     },
 
-    /* Auto-start TokenTelemetry Go Hub server and Next.js baseline for tests */
+    /* Auto-start TokenTelemetry Go Hub server (and optional Next.js baseline for visual tests) */
     webServer: [
         {
             command: `sh -c "mkdir -p ${tempScanDir} && cd ../.. && ( [ -f bin/tt-server ] || make build ) && ./bin/tt-server --port 8000 --db ${tempDb} --scan-dir ${tempScanDir}"`,
@@ -77,14 +77,18 @@ export default defineConfig({
             stderr: 'pipe',
             timeout: 30000,
         },
-        {
-            command: `sh -c "cd ../../../tokentelemetry/frontend && ( [ -d .next ] || npm run build ) && npx next start -p 3000"`,
-            url: 'http://127.0.0.1:3000',
-            reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
-            stdout: 'pipe',
-            stderr: 'pipe',
-            timeout: 30000,
-        },
+        ...(process.env.VISUAL_DIFF === 'true'
+            ? [
+                  {
+                      command: `sh -c "cd ../../../tokentelemetry/frontend && ( [ -d .next ] || npm run build ) && npx next start -p 3000"`,
+                      url: 'http://127.0.0.1:3000',
+                      reuseExistingServer: process.env.REUSE_EXISTING_SERVER === 'true',
+                      stdout: 'pipe',
+                      stderr: 'pipe',
+                      timeout: 30000,
+                  },
+              ]
+            : []),
     ],
 
     /* Configure projects */
