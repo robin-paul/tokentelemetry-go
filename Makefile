@@ -2,6 +2,9 @@ VERSION ?= 2.0.0
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS = -s -w -X main.Version=$(VERSION) -X main.Commit=$(COMMIT)
 
+# Ensure inherited GOROOT does not cause mismatch with the active go binary
+unexport GOROOT
+
 .PHONY: all build-frontend build-server build-cli build-all build test test-ui test-ui-smoke test-ui-visual test-ui-headed docker-build kill clean
 
 all: build-all
