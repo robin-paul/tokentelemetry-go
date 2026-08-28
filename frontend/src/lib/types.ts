@@ -73,6 +73,27 @@ export interface SubagentRun {
   created_at: string;
 }
 
+export interface DSHMetrics {
+  turns?: number;
+  steps?: number;
+  llm_ms?: number | null;
+  tool_ms?: number | null;
+  ttft_ms_avg?: number | null;
+  output_tok_per_sec?: number | null;
+  cache_hit_pct?: number | null;
+}
+
+export interface DSHContext {
+  agent_preset?: string;
+  preset_chain?: string[];
+  sandbox?: Record<string, unknown>;
+  metrics?: DSHMetrics;
+  models_used?: string[];
+  providers_used?: string[];
+  skills_catalog?: string[];
+  tools_available?: string[];
+}
+
 export interface Session {
   id: string;
   session_id: string;
@@ -108,6 +129,7 @@ export interface Session {
   system_prompt?: string;
   env?: Record<string, unknown>;
   cwd?: string;
+  dsh?: DSHContext;
 }
 
 export interface StatsOverview {

@@ -4,12 +4,14 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/robin-paul/tokentelemetry-go/internal/models"
+	"github.com/robin-paul/tokentelemetry-go/internal/scanner/parsers"
 	"github.com/robin-paul/tokentelemetry-go/internal/store"
 )
 
@@ -259,6 +261,16 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request) {
 		}
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if sess.AgentName == "dsh" && sess.FilePath != "" && sess.DSH == nil {
+		if f, err := os.Open(sess.FilePath); err == nil {
+			p := parsers.NewDSHParser()
+			if parsed, _, parseErr := p.Parse(f, 0); parseErr == nil && parsed != nil {
+				sess.DSH = parsed.DSH
+			}
+			f.Close()
+		}
 	}
 
 	respondJSON(w, http.StatusOK, sess)

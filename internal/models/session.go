@@ -62,6 +62,29 @@ type SubagentRun struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+// DSHMetrics holds latency and throughput breakdown derived from DSH transcripts.
+type DSHMetrics struct {
+	Turns           int      `json:"turns"`
+	Steps           int      `json:"steps"`
+	LLMMs           *float64 `json:"llm_ms,omitempty"`
+	ToolMs          *float64 `json:"tool_ms,omitempty"`
+	TTFTMsAvg       *float64 `json:"ttft_ms_avg,omitempty"`
+	OutputTokPerSec *float64 `json:"output_tok_per_sec,omitempty"`
+	CacheHitPct     *float64 `json:"cache_hit_pct,omitempty"`
+}
+
+// DSHContext holds DSH-specific metadata, posture, and metrics.
+type DSHContext struct {
+	Metrics        *DSHMetrics            `json:"metrics,omitempty"`
+	AgentPreset    string                 `json:"agent_preset,omitempty"`
+	PresetChain    []string               `json:"preset_chain,omitempty"`
+	Sandbox        map[string]interface{} `json:"sandbox,omitempty"`
+	ModelsUsed     []string               `json:"models_used,omitempty"`
+	ProvidersUsed  []string               `json:"providers_used,omitempty"`
+	SkillsCatalog  []string               `json:"skills_catalog,omitempty"`
+	ToolsAvailable []string               `json:"tools_available,omitempty"`
+}
+
 // Session represents a complete conversation or execution session across an agent ecosystem.
 type Session struct {
 	ID                  string        `json:"id"`
@@ -92,4 +115,5 @@ type Session struct {
 	SubagentType        string        `json:"subagent_type"`
 	Turns               []MessageTurn `json:"turns,omitempty"`
 	SubagentRuns        []SubagentRun `json:"subagent_runs,omitempty"`
+	DSH                 *DSHContext   `json:"dsh,omitempty"`
 }

@@ -312,6 +312,7 @@ func (e *Engine) ScanFile(ctx context.Context, filePath string) (*models.Session
 		ParentSessionID:     parsed.ParentSessionID,
 		SubagentType:        parsed.SubagentType,
 		SubagentRuns:        parsed.SubagentRuns,
+		DSH:                 parsed.DSH,
 	}
 
 	if sess.HardwareProfile == "" {

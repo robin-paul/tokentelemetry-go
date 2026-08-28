@@ -305,6 +305,55 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
               </div>
             </div>
 
+            {/* DSH Latency & Throughput Breakdown */}
+            {session.dsh?.metrics && (session.dsh.metrics.llm_ms != null || session.dsh.metrics.tool_ms != null || session.dsh.metrics.ttft_ms_avg != null) && (
+              <div className="space-y-2 pt-2 border-t border-white/5" data-testid="dsh-latency-breakdown">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" /> Latency Breakdown
+                  </span>
+                  {(session.dsh.metrics.turns !== undefined || session.dsh.metrics.steps !== undefined) && (
+                    <span className="font-mono text-[10px] text-gray-500">
+                      {session.dsh.metrics.turns ?? 0} turns · {session.dsh.metrics.steps ?? 0} steps
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
+                  {session.dsh.metrics.llm_ms != null && (
+                    <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                      <div className="text-[10px] text-gray-500 uppercase">LLM Time</div>
+                      <div className="text-white font-semibold">{(session.dsh.metrics.llm_ms / 1000).toFixed(1)}s</div>
+                    </div>
+                  )}
+                  {session.dsh.metrics.tool_ms != null && (
+                    <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                      <div className="text-[10px] text-gray-500 uppercase">Tool Time</div>
+                      <div className="text-white font-semibold">{(session.dsh.metrics.tool_ms / 1000).toFixed(1)}s</div>
+                    </div>
+                  )}
+                  {session.dsh.metrics.ttft_ms_avg != null && (
+                    <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                      <div className="text-[10px] text-gray-500 uppercase">TTFT (avg)</div>
+                      <div className="text-cyan-400 font-semibold">{(session.dsh.metrics.ttft_ms_avg / 1000).toFixed(1)}s</div>
+                    </div>
+                  )}
+                  {session.dsh.metrics.output_tok_per_sec != null && (
+                    <div className="p-2 rounded-lg bg-black/40 border border-white/5">
+                      <div className="text-[10px] text-gray-500 uppercase">Throughput</div>
+                      <div className="text-emerald-400 font-semibold">{session.dsh.metrics.output_tok_per_sec} tok/s</div>
+                    </div>
+                  )}
+                  {session.dsh.metrics.cache_hit_pct != null && (
+                    <div className="p-2 rounded-lg bg-black/40 border border-white/5 col-span-2 flex items-center justify-between">
+                      <span className="text-[10px] text-gray-500 uppercase">Cache Hit</span>
+                      <span className="text-purple-400 font-bold">{session.dsh.metrics.cache_hit_pct}%</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Financial and Token Footprint Breakdown */}
             <div className="space-y-2 pt-2 border-t border-white/5">
               <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">

@@ -168,6 +168,94 @@ func TestDSHParser(t *testing.T) {
 	}
 }
 
+func TestDSHLatencyBreakdownMatchesDSHFormulas(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"turn/start","seq":1,"time":900,"data":{"turn":1}}
+{"type":"step/start","seq":2,"time":1000,"data":{"turn":1,"step":1}}
+{"type":"request/context","seq":3,"time":1001,"data":{"provider":"cerebras","model":"zai-glm-4.7"}}
+{"type":"assistant/chunk","seq":4,"time":2000,"data":{"turn":1,"step":1,"chunk":{"type":"block-start"}}}
+{"type":"assistant/chunk","seq":5,"time":3000,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":100,"outputTokens":50}}}}
+{"type":"tool/call","seq":6,"time":3100,"data":{"turn":1,"step":1,"callId":"c1","name":"bash","arguments":"{}"}}
+{"type":"tool/result","seq":7,"time":9100,"data":{"turn":1,"step":1,"message":{"source":{"kind":"tool","callId":"c1"},"content":[]}}}
+{"type":"step/end","seq":8,"time":9200,"data":{"turn":1,"step":1}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil || sess.DSH.Metrics == nil {
+		t.Fatalf("expected DSH metrics to be populated")
+	}
+
+	m := sess.DSH.Metrics
+	if m.Turns != 1 {
+		t.Errorf("expected 1 turn, got %d", m.Turns)
+	}
+	if m.Steps != 1 {
+		t.Errorf("expected 1 step, got %d", m.Steps)
+	}
+	if m.TTFTMsAvg == nil || *m.TTFTMsAvg != 1000 {
+		t.Errorf("expected TTFT avg 1000ms, got %v", m.TTFTMsAvg)
+	}
+	if m.LLMMs == nil || *m.LLMMs != 2000 {
+		t.Errorf("expected LLM time 2000ms, got %v", m.LLMMs)
+	}
+	if m.ToolMs == nil || *m.ToolMs != 6000 {
+		t.Errorf("expected Tool time 6000ms, got %v", m.ToolMs)
+	}
+	if m.OutputTokPerSec == nil || *m.OutputTokPerSec != 50.0 {
+		t.Errorf("expected Throughput 50.0 tok/s, got %v", m.OutputTokPerSec)
+	}
+}
+
+func TestDSHCacheHitCountsCacheReadsAsInput(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"step/start","seq":1,"time":1000,"data":{"turn":1,"step":1}}
+{"type":"assistant/chunk","seq":2,"time":1100,"data":{"turn":1,"step":1,"chunk":{"type":"block-start"}}}
+{"type":"assistant/chunk","seq":3,"time":1200,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":300,"outputTokens":10,"cacheReadTokens":700}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil || sess.DSH.Metrics == nil {
+		t.Fatalf("expected DSH metrics to be populated")
+	}
+
+	m := sess.DSH.Metrics
+	if m.CacheHitPct == nil || *m.CacheHitPct != 70.0 {
+		t.Errorf("expected cache hit pct 70.0%%, got %v", m.CacheHitPct)
+	}
+}
+
+func TestDSHMetricsAbsentWithoutTimingData(t *testing.T) {
+	p := NewDSHParser()
+	jsonl := `{"type":"request/context","seq":1,"time":1000,"data":{"provider":"ollama","model":"deepseek-v4-flash:cloud"}}
+{"type":"turn/end","seq":2,"time":1001,"data":{"turn":1,"reason":{"kind":"error","error":{"code":"AUTH"}}}}`
+
+	sess, _, err := p.Parse(strings.NewReader(jsonl), 0)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if sess.DSH == nil || sess.DSH.Metrics == nil {
+		t.Fatalf("expected DSH metrics container")
+	}
+
+	m := sess.DSH.Metrics
+	if m.LLMMs != nil {
+		t.Errorf("expected nil LLMMs, got %v", *m.LLMMs)
+	}
+	if m.TTFTMsAvg != nil {
+		t.Errorf("expected nil TTFTMsAvg, got %v", *m.TTFTMsAvg)
+	}
+	if m.OutputTokPerSec != nil {
+		t.Errorf("expected nil OutputTokPerSec, got %v", *m.OutputTokPerSec)
+	}
+	if m.ToolMs != nil {
+		t.Errorf("expected nil ToolMs, got %v", *m.ToolMs)
+	}
+}
+
 func TestCopilotParser(t *testing.T) {
 	p := NewCopilotParser()
 	if !p.Detect("/Users/dev/.copilot/session-state/sess1/events.jsonl") {

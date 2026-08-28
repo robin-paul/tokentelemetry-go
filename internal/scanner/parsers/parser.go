@@ -51,6 +51,7 @@ type ParsedSession struct {
 	Status          string               `json:"status"`
 	HardwareProfile string               `json:"hardware_profile"`
 	Endpoint        string               `json:"endpoint,omitempty"`
+	DSH             *models.DSHContext   `json:"dsh,omitempty"`
 }
 
 // AgentParser is the standard interface implemented by all 18+ agent parsers.
