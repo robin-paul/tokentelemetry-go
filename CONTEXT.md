@@ -56,6 +56,14 @@ _Avoid_: Custom rate, custom price, manual fee
 Calculated electrical power consumption and electricity cost based on hardware profile TDP and local utility rates.
 _Avoid_: Hardware cost, energy bill, machine usage
 
+**Reasoning Tokens**:
+LLM tokens consumed to produce hidden chain-of-thought, recorded as a distinct metric from visible output tokens. Whether a provider bills them inside output or on top of it is provider-specific.
+_Avoid_: Thinking tokens, thought tokens
+
+**Billable Output Tokens**:
+The output token count a provider actually charges for, derived from output and reasoning tokens under the provider's reasoning-inclusion semantics. Single source of truth for pricing and reporting.
+_Avoid_: Effective output tokens, charged output
+
 ### Architecture & Distributed Topology
 
 **Collector** (`tt`):
@@ -73,3 +81,9 @@ _Avoid_: Sync packet, telemetry push, log payload, event dump
 **Client Batch Buffer**:
 An in-memory queue within the collector that aggregates and debounces parsed sessions before transmitting them in an ingestion batch.
 _Avoid_: Transmission queue, local buffer, staging cache, spool
+
+## Support & Scope
+
+**First-Class Agent**:
+An agent harness backed by a standing support commitment from the maintainers, whose ingestion gaps and bugs take priority. All other agents are demand-driven and added only when a user provides evidence of real usage.
+_Avoid_: Supported agent, priority agent, tier-one agent
